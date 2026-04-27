@@ -714,6 +714,16 @@ select {
   align-items: center;
 }
 
+/* Invisible bridge that keeps hover active while cursor crosses the gap */
+.nav-dropdown::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: -16px;
+  right: -16px;
+  height: 22px;
+}
+
 .nav-dropdown-menu {
   display: none;
   position: absolute;

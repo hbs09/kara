@@ -805,6 +805,7 @@
       if (path === '/checkout') return { name: 'checkout', query };
       if (path === '/account') return { name: 'account', query };
       if (path === '/contact') return { name: 'contact', query };
+      if (path === '/admin' || path.startsWith('/admin/')) return { name: 'admin', query };
       return { name: 'home', query };
     }
 
@@ -813,7 +814,7 @@
 
 
     function Nav() {
-      const { route, navigate, cartCount, setDrawerOpen, setSearchOpen, mobileMenuOpen, setMobileMenuOpen } = useStore();
+      const { route, navigate, cartCount, setDrawerOpen, setSearchOpen, mobileMenuOpen, setMobileMenuOpen, sbProfile } = useStore();
       const r = parseRoute(route);
       const isGenderActive = (gId) => r.name === 'shop' && r.category && r.category.startsWith(gId);
       const isSubActive = (gId, sId) => r.name === 'shop' && r.category === `${gId}/${sId}`;
@@ -861,6 +862,12 @@
               </a>
 
               <div className="nav-right">
+                {sbProfile?.role === 'admin' && (
+                  <a className="nav-link" onClick={(e) => { e.preventDefault(); navigate('/admin'); }} href="#/admin"
+                     style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', opacity: 0.7 }}>
+                    ADMIN
+                  </a>
+                )}
                 <button className="icon-btn" aria-label="search" onClick={() => setSearchOpen(true)}>
                   <Icon name="search" />
                 </button>
@@ -2788,15 +2795,20 @@
 
 
     function App() {
-      const { route, setDrawerOpen, setSearchOpen, setMobileMenuOpen } = useStore();
+      const { route, navigate, setDrawerOpen, setSearchOpen, setMobileMenuOpen, sbProfile } = useStore();
       const r = parseRoute(route);
 
-      // Close all overlays on route change
+      // Close all overlays on route change (must be before any conditional return)
       useEffect(() => {
         setDrawerOpen(false);
         setSearchOpen(false);
         setMobileMenuOpen(false);
       }, [route, setDrawerOpen, setSearchOpen, setMobileMenuOpen]);
+
+      // Admin dashboard — full-screen takeover, no store chrome
+      if (r.name === 'admin' && sbProfile?.role === 'admin' && window.PageAdmin) {
+        return <window.PageAdmin onExit={() => navigate('/')} />;
+      }
 
       let page;
       switch (r.name) {
