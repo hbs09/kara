@@ -123,22 +123,31 @@
 
     async getCustomers() {
       if (!configured()) return null;
-      const { data, error } = await db()
-        .from('profiles')
-        .select('id,first_name,last_name,email,role,created_at')
-        .neq('role', 'admin')
-        .order('created_at', { ascending: false });
-      if (error) { console.warn('Admin.getCustomers:', error.message); return null; }
-      return data.map(c => ({
-        dbId: c.id,
-        id: 'C-' + c.id.slice(0, 6).toUpperCase(),
-        name: [c.first_name, c.last_name].filter(Boolean).join(' ') || 'Cliente',
-        email: c.email || '—',
-        orders: 0,
-        ltv: 0,
-        status: 'New',
-        joined: new Date(c.created_at).toLocaleDateString('pt-PT', { month: 'short', year: 'numeric' }),
-      }));
+      const PAID = ['paid', 'confirmed', 'processing', 'shipped', 'delivered'];
+      const [profRes, ordRes] = await Promise.all([
+        db().from('profiles').select('id,first_name,last_name,email,role,created_at').neq('role', 'admin').order('created_at', { ascending: false }),
+        db().from('orders').select('profile_id,total,status').not('profile_id', 'is', null).in('status', PAID),
+      ]);
+      if (profRes.error) { console.warn('Admin.getCustomers:', profRes.error.message); return null; }
+      const statsMap = {};
+      (ordRes.data || []).forEach(o => {
+        if (!statsMap[o.profile_id]) statsMap[o.profile_id] = { count: 0, ltv: 0 };
+        statsMap[o.profile_id].count++;
+        statsMap[o.profile_id].ltv += Number(o.total);
+      });
+      return (profRes.data || []).map(c => {
+        const s = statsMap[c.id] || { count: 0, ltv: 0 };
+        return {
+          dbId: c.id,
+          id: 'C-' + c.id.slice(0, 6).toUpperCase(),
+          name: [c.first_name, c.last_name].filter(Boolean).join(' ') || 'Cliente',
+          email: c.email || '—',
+          orders: s.count,
+          ltv: s.ltv,
+          status: s.count > 1 ? 'Returning' : s.count === 1 ? 'New' : 'Sem pedidos',
+          joined: new Date(c.created_at).toLocaleDateString('pt-PT', { month: 'short', year: 'numeric' }),
+        };
+      });
     },
 
     async getOrders({ limit = 100 } = {}) {
@@ -174,6 +183,8 @@
         shippingName: o.shipping_name,
         shippingAddress: o.shipping_address,
         notes: o.notes,
+        trackingNumber: o.tracking_number || '',
+        trackingUrl: o.tracking_url || '',
       }));
     },
 
@@ -234,6 +245,100 @@
       const { error } = await db().from('products').update({ stock_quantity }).eq('id', dbId);
       if (error) throw error;
     },
+
+    async getOrderItems(orderId) {
+      if (!configured()) return [];
+      const { data, error } = await db()
+        .from('order_items')
+        .select('id,product_name,product_sku,color_label,size_label,qty,unit_price,total_price')
+        .eq('order_id', orderId);
+      if (error) return [];
+      return data || [];
+    },
+
+    async updateTracking(dbId, trackingNumber, trackingUrl) {
+      const { error } = await db().from('orders')
+        .update({ tracking_number: trackingNumber || null, tracking_url: trackingUrl || null, updated_at: new Date().toISOString() })
+        .eq('id', dbId);
+      if (error) throw error;
+    },
+
+    async getAnalytics() {
+      if (!configured()) return null;
+      try {
+        const PAID = ['paid', 'confirmed', 'processing', 'shipped', 'delivered'];
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        const w7  = new Date(Date.now() -  7 * 86400000).toISOString();
+        const d30 = new Date(Date.now() - 30 * 86400000).toISOString();
+        const d60 = new Date(Date.now() - 60 * 86400000).toISOString();
+
+        const [cur30, prev30, allItems] = await Promise.all([
+          db().from('orders').select('id,status,fulfillment_status,channel,total,created_at').in('status', PAID).gte('created_at', d30),
+          db().from('orders').select('total').in('status', PAID).gte('created_at', d60).lt('created_at', d30),
+          db().from('order_items').select('product_name,product_sku,qty,unit_price'),
+        ]);
+
+        const data30   = cur30.data  || [];
+        const dataPrev = prev30.data || [];
+        const todayArr = data30.filter(o => o.created_at >= todayStart);
+        const week7Arr = data30.filter(o => o.created_at >= w7);
+
+        const sum = arr => arr.reduce((s, o) => s + Number(o.total), 0);
+        const rev30 = sum(data30), revPrev = sum(dataPrev);
+        const delta30 = revPrev > 0 ? ((rev30 - revPrev) / revPrev) * 100 : null;
+
+        const byChannel = {};
+        data30.forEach(o => {
+          const ch = o.channel || 'web';
+          byChannel[ch] = (byChannel[ch] || 0) + Number(o.total);
+        });
+
+        const byFulfillment = {};
+        data30.forEach(o => {
+          const fs = o.fulfillment_status || 'unfulfilled';
+          byFulfillment[fs] = (byFulfillment[fs] || 0) + 1;
+        });
+
+        const prodMap = {};
+        (allItems.data || []).forEach(it => {
+          const k = it.product_name;
+          if (!prodMap[k]) prodMap[k] = { name: k, sku: it.product_sku || '', qty: 0, revenue: 0 };
+          prodMap[k].qty     += Number(it.qty) || 0;
+          prodMap[k].revenue += (Number(it.qty) || 0) * (Number(it.unit_price) || 0);
+        });
+        const topProducts = Object.values(prodMap).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+
+        const dailySeries = Array.from({ length: 30 }, (_, i) => {
+          const d = new Date(Date.now() - (29 - i) * 86400000);
+          return { d: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), v: 0 };
+        });
+        data30.forEach(o => {
+          const k = new Date(o.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const s = dailySeries.find(x => x.d === k);
+          if (s) s.v += Number(o.total);
+        });
+
+        return {
+          today: sum(todayArr), week: sum(week7Arr), month: rev30, prevMonth: revPrev,
+          delta30, avgOrder: data30.length ? rev30 / data30.length : 0,
+          orderCount30d: data30.length,
+          byChannel: Object.entries(byChannel).map(([k, v]) => ({ k, v })).sort((a, b) => b.v - a.v),
+          byFulfillment: Object.entries(byFulfillment).map(([k, v]) => ({ k, v })),
+          topProducts, dailySeries,
+        };
+      } catch { return null; }
+    },
+
+    async getCustomerDetail(profileId) {
+      if (!configured()) return [];
+      const { data } = await db()
+        .from('orders_full')
+        .select('id,order_ref,status,fulfillment_status,total,created_at,total_items')
+        .eq('profile_id', profileId)
+        .order('created_at', { ascending: false });
+      return data || [];
+    },
   };
 
   // ── useData hook ─────────────────────────────────────────────────────────────
@@ -256,7 +361,8 @@
     const m = { Paid: 'chip-success', Pending: 'chip-warning', Cancelled: 'chip-neutral',
                 Refunded: 'chip-neutral', Fulfilled: 'chip-success', Unfulfilled: 'chip-warning',
                 'On hold': 'chip-error', Returned: 'chip-neutral',
-                VIP: 'chip-info', New: 'chip-success', Returning: 'chip-neutral' };
+                VIP: 'chip-info', New: 'chip-success', Returning: 'chip-info', 'Sem pedidos': 'chip-neutral',
+                'Em preparação': 'chip-info', Enviado: 'chip-info', Entregue: 'chip-success' };
     return <span className={`chip ${m[s] || 'chip-neutral'}`}><span className="dot"/>{s}</span>;
   };
 
@@ -317,6 +423,14 @@
       d: new Date(Date.now() - (13 - i) * 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       v: 0,
     })),
+    analytics: {
+      today: 0, week: 0, month: 0, prevMonth: 0, delta30: null, avgOrder: 0, orderCount30d: 0,
+      byChannel: [], byFulfillment: [], topProducts: [],
+      dailySeries: Array.from({ length: 30 }, (_, i) => ({
+        d: new Date(Date.now() - (29 - i) * 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        v: 0,
+      })),
+    },
   };
 
   // ── Base components ───────────────────────────────────────────────────────────
@@ -817,6 +931,16 @@
   // ── Order Panel ───────────────────────────────────────────────────────────────
   const OrderPanel = ({ order, onClose, showToast }) => {
     const [busy, setBusy] = useState(false);
+    const [items, setItems] = useState([]);
+    const [tracking, setTracking] = useState(order.trackingNumber || '');
+    const [trackingUrl, setTrackingUrl] = useState(order.trackingUrl || '');
+    const [savingTracking, setSavingTracking] = useState(false);
+
+    useEffect(() => {
+      if (!order.dbId) return;
+      AdminAPI.getOrderItems(order.dbId).then(setItems);
+    }, [order.dbId]);
+
     const act = async (fn, msg) => {
       if (!order.dbId) { showToast('Sem ligação à BD', 'error'); return; }
       setBusy(true);
@@ -828,15 +952,25 @@
     const markFulfilled = () => act(() => AdminAPI.updateOrderFulfillment(order.dbId, 'fulfilled'), 'Pedido enviado.');
     const markRefunded  = () => act(() => AdminAPI.updateOrderStatus(order.dbId, 'refunded'), 'Reembolso registado.');
     const markCancelled = () => act(() => AdminAPI.updateOrderStatus(order.dbId, 'cancelled'), 'Pedido cancelado.');
+    const saveTracking  = async () => {
+      if (!order.dbId) return;
+      setSavingTracking(true);
+      try { await AdminAPI.updateTracking(order.dbId, tracking, trackingUrl); showToast('Tracking actualizado.'); }
+      catch (e) { showToast('Erro: ' + e.message, 'error'); }
+      finally { setSavingTracking(false); }
+    };
+
+    const addr = order.shippingAddress || {};
 
     return (
       <>
         <div className="animate-overlay" onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(16,24,40,0.32)', zIndex: 50 }}/>
-        <aside className="animate-slide-right" style={{ position: 'fixed', top: 0, right: 0, height: '100%', width: 500,
+        <aside className="animate-slide-right" style={{ position: 'fixed', top: 0, right: 0, height: '100%', width: 520,
                                                         background: 'var(--surface-container-lowest)',
                                                         boxShadow: '-12px 0 32px rgba(16,24,40,0.1)',
                                                         zIndex: 51, display: 'flex', flexDirection: 'column',
                                                         borderLeft: '1px solid var(--hairline)' }}>
+          {/* Header */}
           <header style={{ padding: '18px 22px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -848,41 +982,94 @@
             <button className="btn btn-ghost btn-icon" onClick={onClose}><IcClose size={18}/></button>
           </header>
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 18 }}>
-            {/* Summary */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              {[['Cliente', order.customer], ['Canal', order.channel],
-                ['Itens', order.items], ['Total', fmtBRL(order.total)]].map(([l, v]) => (
-                <div key={l} style={{ padding: 12, background: 'var(--surface-container-low)', borderRadius: 8 }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+            {/* KPI summary */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+              {[['Cliente', order.customer], ['Canal', order.channel], ['Total', fmtBRL(order.total)]].map(([l, v]) => (
+                <div key={l} style={{ padding: '10px 14px', background: 'var(--surface-container-low)', borderRadius: 8 }}>
                   <div className="overline" style={{ fontSize: 10, marginBottom: 4 }}>{l}</div>
-                  <div style={{ fontWeight: 600 }}>{v}</div>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{v}</div>
                 </div>
               ))}
             </div>
+            {order.email && (
+              <div style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>
+                <span style={{ marginRight: 6 }}>✉</span>{order.email}
+              </div>
+            )}
 
             {/* Notes */}
             {order.notes && (
-              <div style={{ padding: 12, background: 'var(--warning-soft)', borderRadius: 8, fontSize: 13 }}>
+              <div style={{ padding: '10px 14px', background: 'var(--warning-soft)', borderRadius: 8, fontSize: 13 }}>
                 <span style={{ fontWeight: 600 }}>Nota: </span>{order.notes}
               </div>
             )}
 
-            {/* Shipping */}
-            {order.shippingName && (
-              <div>
-                <div className="overline" style={{ marginBottom: 8 }}>Enviar para</div>
-                <div style={{ fontSize: 13, lineHeight: '20px' }}>
-                  <div style={{ fontWeight: 600 }}>{order.shippingName}</div>
-                  {order.shippingAddress && (
-                    <div className="muted">
-                      {order.shippingAddress.street && <div>{order.shippingAddress.street}</div>}
-                      {order.shippingAddress.city && <div>{order.shippingAddress.city} {order.shippingAddress.postal_code}</div>}
-                      {order.shippingAddress.country && <div>{order.shippingAddress.country}</div>}
+            {/* Order items */}
+            <div>
+              <div className="overline" style={{ marginBottom: 10 }}>Artigos ({items.length || order.items})</div>
+              {items.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 1, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--hairline)' }}>
+                  {items.map((it, i) => (
+                    <div key={it.id || i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+                                                    background: i % 2 === 0 ? 'var(--surface-container-lowest)' : 'var(--surface-container-low)' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{it.product_name}</div>
+                        <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                          {[it.product_sku, it.color_label, it.size_label].filter(Boolean).join(' · ')}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 13, color: 'var(--on-surface-variant)', flexShrink: 0 }}>×{it.qty}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, minWidth: 72, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                        {fmtBRL(it.total_price ?? Number(it.qty) * Number(it.unit_price))}
+                      </div>
                     </div>
-                  )}
+                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '10px 14px', background: 'var(--surface-container)', fontWeight: 700, fontSize: 13 }}>
+                    <span>Total</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(order.total)}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="muted" style={{ fontSize: 13 }}>{order.dbId ? 'A carregar artigos…' : 'Sem dados de artigos em modo demo.'}</div>
+              )}
+            </div>
+
+            {/* Shipping address */}
+            {(order.shippingName || addr.address1) && (
+              <div>
+                <div className="overline" style={{ marginBottom: 8 }}>Endereço de envio</div>
+                <div style={{ fontSize: 13, lineHeight: '22px', padding: '12px 14px', background: 'var(--surface-container-low)', borderRadius: 8 }}>
+                  {order.shippingName && <div style={{ fontWeight: 600 }}>{order.shippingName}</div>}
+                  {addr.address1  && <div className="muted">{addr.address1}</div>}
+                  {addr.address2  && <div className="muted">{addr.address2}</div>}
+                  {(addr.city || addr.postal) && <div className="muted">{[addr.city, addr.postal].filter(Boolean).join(' ')}</div>}
+                  {addr.country   && <div className="muted">{addr.country}</div>}
+                  {addr.phone     && <div className="muted">{addr.phone}</div>}
                 </div>
               </div>
             )}
+
+            {/* Tracking */}
+            <div>
+              <div className="overline" style={{ marginBottom: 10 }}>Tracking</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div className="field" style={{ flex: 1 }}>
+                    <input placeholder="Número de tracking" value={tracking} onChange={e => setTracking(e.target.value)}/>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div className="field" style={{ flex: 1 }}>
+                    <input placeholder="URL de tracking (opcional)" value={trackingUrl} onChange={e => setTrackingUrl(e.target.value)}/>
+                  </div>
+                  <button className="btn btn-secondary" onClick={saveTracking} disabled={savingTracking || !order.dbId} style={{ flexShrink: 0 }}>
+                    {savingTracking ? 'A guardar…' : 'Guardar'}
+                  </button>
+                </div>
+              </div>
+            </div>
 
             {/* Actions */}
             <div>
@@ -1069,20 +1256,38 @@
   };
 
   // ── Customers ─────────────────────────────────────────────────────────────────
-  const Customers = () => {
-    const { data: customers, loading } = useData(AdminAPI.getCustomers, MOCK.customers);
+  const Customers = ({ onOpenCustomer }) => {
+    const { data: customers, loading, reload } = useData(AdminAPI.getCustomers, MOCK.customers);
     const [q, setQ] = useState('');
     const swatches = ['var(--swatch-1)','var(--swatch-2)','var(--swatch-3)','var(--swatch-4)',
                       'var(--swatch-5)','var(--swatch-6)','var(--swatch-7)','var(--swatch-8)'];
     const items = (customers || []).filter(c => !q || c.name.toLowerCase().includes(q.toLowerCase()) || c.email.toLowerCase().includes(q.toLowerCase()));
+    const totalLTV = (customers || []).reduce((s, c) => s + c.ltv, 0);
 
     return (
       <div style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 18 }} className="animate-fade">
-        <div>
-          <h1 className="h1" style={{ margin: 0 }}>Clientes</h1>
-          <div className="muted" style={{ marginTop: 4 }}>{(customers || []).length} clientes registados{configured() ? '' : ' (demo)'}</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h1 className="h1" style={{ margin: 0 }}>Clientes</h1>
+            <div className="muted" style={{ marginTop: 4 }}>{(customers || []).length} clientes registados{configured() ? '' : ' (demo)'}</div>
+          </div>
+          <button className="btn btn-secondary" onClick={reload}><IcRefresh size={15}/> Actualizar</button>
         </div>
-        <div className="field" style={{ width: 300 }}>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
+          {[
+            ['Total clientes', fmtNum((customers||[]).length)],
+            ['Com pedidos', fmtNum((customers||[]).filter(c => c.orders > 0).length)],
+            ['LTV total', fmtBRL(totalLTV)],
+          ].map(([l, v]) => (
+            <div key={l} className="card" style={{ padding: '16px 20px' }}>
+              <div className="overline" style={{ fontSize: 11, marginBottom: 6 }}>{l}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{v}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="field" style={{ width: 320 }}>
           <IcSearch size={14} stroke="var(--on-surface-variant)"/>
           <input placeholder="Nome ou email…" value={q} onChange={e => setQ(e.target.value)}/>
         </div>
@@ -1097,12 +1302,12 @@
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ background: 'var(--surface-container-low)' }}>
-                      {['Cliente','Email','Pedidos','Estado','Membro desde',''].map(h => <th key={h} style={thS}>{h}</th>)}
+                      {['Cliente','Email','Pedidos','LTV','Estado','Membro desde',''].map(h => <th key={h} style={thS}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
                     {items.map((c, i) => (
-                      <tr key={c.id} style={{ cursor: 'default' }}
+                      <tr key={c.id} onClick={() => onOpenCustomer && onOpenCustomer(c)} style={{ cursor: 'pointer' }}
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-container-low)'}
                           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                         <td style={tdS}>
@@ -1115,6 +1320,7 @@
                         </td>
                         <td style={{ ...tdS, color: 'var(--on-surface-variant)' }}>{c.email}</td>
                         <td style={{ ...tdS, fontVariantNumeric: 'tabular-nums' }}>{c.orders}</td>
+                        <td style={{ ...tdS, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(c.ltv)}</td>
                         <td style={tdS}>{statusToChip(c.status)}</td>
                         <td style={{ ...tdS, color: 'var(--on-surface-variant)' }}>{c.joined}</td>
                         <td style={tdS}><IcChevRight size={14} stroke="var(--outline)"/></td>
@@ -1128,22 +1334,231 @@
     );
   };
 
-  // ── Analytics stub ────────────────────────────────────────────────────────────
-  const Analytics = () => (
-    <div style={{ padding: 28 }} className="animate-fade">
-      <h1 className="h1" style={{ margin: 0 }}>Analytics</h1>
-      <div className="muted" style={{ marginTop: 6 }}>Em breve — disponível quando houver mais dados de pedidos.</div>
-      <div className="card" style={{ marginTop: 20, padding: 60, display: 'grid', placeItems: 'center', textAlign: 'center', minHeight: 360 }}>
-        <div>
-          <div style={{ width: 56, height: 56, borderRadius: 14, background: 'var(--primary-soft-2)', color: 'var(--primary)', display: 'grid', placeItems: 'center', marginBottom: 16, marginLeft: 'auto', marginRight: 'auto' }}>
-            <IcChart size={28}/>
+  // ── Customer Panel ────────────────────────────────────────────────────────────
+  const CustomerPanel = ({ customer, onClose, onOpenOrder }) => {
+    const [orders, setOrders] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const STAT = { pending: 'Pending', paid: 'Paid', confirmed: 'Paid', processing: 'Em preparação', shipped: 'Enviado', delivered: 'Entregue', cancelled: 'Cancelled', refunded: 'Refunded' };
+
+    useEffect(() => {
+      if (!customer.dbId) { setLoading(false); return; }
+      AdminAPI.getCustomerDetail(customer.dbId).then(data => {
+        setOrders(data);
+        setLoading(false);
+      });
+    }, [customer.dbId]);
+
+    const avgOrder = orders.length ? orders.reduce((s, o) => s + Number(o.total), 0) / orders.length : 0;
+    const swatches = ['var(--swatch-1)','var(--swatch-2)','var(--swatch-3)','var(--swatch-4)','var(--swatch-5)','var(--swatch-6)','var(--swatch-7)','var(--swatch-8)'];
+    const avatarColor = swatches[customer.name.charCodeAt(0) % 8];
+
+    return (
+      <>
+        <div className="animate-overlay" onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(16,24,40,0.32)', zIndex: 50 }}/>
+        <aside className="animate-slide-right" style={{ position: 'fixed', top: 0, right: 0, height: '100%', width: 480,
+                                                        background: 'var(--surface-container-lowest)',
+                                                        boxShadow: '-12px 0 32px rgba(16,24,40,0.1)',
+                                                        zIndex: 51, display: 'flex', flexDirection: 'column',
+                                                        borderLeft: '1px solid var(--hairline)' }}>
+          <header style={{ padding: '18px 22px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 999, background: avatarColor, color: '#fff',
+                            display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
+                {customer.name.split(' ').map(s => s[0]).slice(0, 2).join('')}
+              </div>
+              <div>
+                <div className="h3">{customer.name}</div>
+                <div className="muted" style={{ fontSize: 12 }}>{customer.email}</div>
+              </div>
+            </div>
+            <button className="btn btn-ghost btn-icon" onClick={onClose}><IcClose size={18}/></button>
+          </header>
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+            {/* Stats */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+              {[['Pedidos', customer.orders], ['LTV', fmtBRL(customer.ltv)], ['Ticket médio', fmtBRL(avgOrder)]].map(([l, v]) => (
+                <div key={l} style={{ padding: '12px 14px', background: 'var(--surface-container-low)', borderRadius: 8 }}>
+                  <div className="overline" style={{ fontSize: 10, marginBottom: 4 }}>{l}</div>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{v}</div>
+                </div>
+              ))}
+            </div>
+            <div className="muted" style={{ fontSize: 12 }}>Membro desde {customer.joined} · {statusToChip(customer.status)}</div>
+
+            {/* Order history */}
+            <div>
+              <div className="overline" style={{ marginBottom: 10 }}>Histórico de pedidos</div>
+              {loading
+                ? <div className="muted" style={{ fontSize: 13 }}>A carregar…</div>
+                : orders.length === 0
+                  ? <div className="muted" style={{ fontSize: 13, padding: '20px 0', textAlign: 'center' }}>Sem pedidos registados.</div>
+                  : <div style={{ display: 'flex', flexDirection: 'column', gap: 1, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--hairline)' }}>
+                      {orders.map((o, i) => {
+                        const ref = o.order_ref ? '#' + o.order_ref : '#KR-' + o.id.slice(-5).toUpperCase();
+                        const stat = STAT[o.status] || o.status;
+                        return (
+                          <div key={o.id} onClick={() => onOpenOrder && onOpenOrder({ dbId: o.id, id: ref })}
+                               style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: onOpenOrder ? 'pointer' : 'default',
+                                        background: i % 2 === 0 ? 'var(--surface-container-lowest)' : 'var(--surface-container-low)' }}
+                               onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-container)'}
+                               onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? 'var(--surface-container-lowest)' : 'var(--surface-container-low)'}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--primary)' }}>{ref}</div>
+                              <div className="muted" style={{ fontSize: 11 }}>
+                                {new Date(o.created_at).toLocaleDateString('pt-PT', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                {o.total_items ? ` · ${o.total_items} artigo${o.total_items > 1 ? 's' : ''}` : ''}
+                              </div>
+                            </div>
+                            {statusToChip(stat)}
+                            <div style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>{fmtBRL(o.total)}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+              }
+            </div>
           </div>
-          <div className="h3">Nada por aqui ainda</div>
-          <div className="muted" style={{ marginTop: 4, maxWidth: 340 }}>Quando a loja tiver pedidos suficientes, aqui vais ver tendências de vendas, canais e comportamento dos clientes.</div>
+        </aside>
+      </>
+    );
+  };
+
+  // ── Analytics ─────────────────────────────────────────────────────────────────
+  const Analytics = () => {
+    const { data: a, loading, reload } = useData(AdminAPI.getAnalytics, MOCK.analytics);
+    const noData = !a || (a.month === 0 && a.orderCount30d === 0);
+    const CHAN_LABEL = { web: 'Web', mobile: 'Mobile', instagram: 'Instagram', other: 'Outro' };
+    const FULL_LABEL = { unfulfilled: 'Unfulfilled', fulfilled: 'Fulfilled', on_hold: 'On hold', returned: 'Returned' };
+    const maxChan = a ? Math.max(...(a.byChannel.map(c => c.v)), 1) : 1;
+    const maxFull = a ? Math.max(...(a.byFulfillment.map(c => c.v)), 1) : 1;
+    const maxProd = a ? Math.max(...(a.topProducts.map(p => p.revenue)), 1) : 1;
+    const pos = a?.delta30 == null || a.delta30 >= 0;
+
+    return (
+      <div style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 20 }} className="animate-fade">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h1 className="h1" style={{ margin: 0 }}>Analytics</h1>
+            <div className="muted" style={{ marginTop: 4 }}>Dados dos últimos 30 dias{configured() ? '' : ' (demo)'}</div>
+          </div>
+          <button className="btn btn-secondary" onClick={reload}><IcRefresh size={15}/> Actualizar</button>
+        </div>
+
+        {/* Revenue period KPIs */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
+          {[
+            { label: 'Hoje', value: fmtBRL(a?.today || 0) },
+            { label: 'Últimos 7 dias', value: fmtBRL(a?.week || 0) },
+            { label: 'Últimos 30 dias', value: fmtBRL(a?.month || 0), delta: a?.delta30 },
+            { label: 'Ticket médio (30d)', value: fmtBRL(a?.avgOrder || 0) },
+          ].map(({ label, value, delta }) => (
+            <div key={label} className="card" style={{ padding: 20 }}>
+              <div className="overline" style={{ fontSize: 11, marginBottom: 8 }}>{label}</div>
+              {loading
+                ? <div style={{ height: 28, width: 100, background: 'var(--surface-container)', borderRadius: 6 }}/>
+                : <div style={{ fontSize: 24, fontWeight: 700, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{value}</div>}
+              {delta != null && (
+                <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: pos ? 'var(--success)' : 'var(--error)' }}>
+                  {pos ? <IcArrowUp size={11} sw={2.5}/> : <IcArrowDown size={11} sw={2.5}/>}
+                  {Math.abs(delta).toFixed(1)}% vs. 30d anteriores
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* 30-day revenue chart */}
+        <Card title="Receita diária (últimos 30 dias)" action={
+          <span className="muted" style={{ fontSize: 12 }}>{a?.orderCount30d || 0} pedidos</span>
+        }>
+          {noData
+            ? <div style={{ padding: '48px 0', textAlign: 'center', color: 'var(--on-surface-variant)', fontSize: 13 }}>Sem dados de vendas ainda.</div>
+            : <AreaChart data={a.dailySeries} height={220}/>
+          }
+        </Card>
+
+        {/* Two columns: top products + channels */}
+        <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 20 }}>
+
+          {/* Top products */}
+          <Card title="Top produtos (receita total)">
+            {loading
+              ? <div className="muted" style={{ fontSize: 13 }}>A carregar…</div>
+              : (a?.topProducts || []).length === 0
+                ? <div className="muted" style={{ fontSize: 13, padding: '16px 0', textAlign: 'center' }}>Sem dados de artigos de pedidos ainda.</div>
+                : <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    {(a.topProducts || []).map((p, i) => (
+                      <div key={p.name}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--on-surface-variant)', minWidth: 16 }}>#{i+1}</span>
+                            {p.name}
+                          </div>
+                          <div style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+                            <span style={{ fontWeight: 700 }}>{fmtBRL(p.revenue)}</span>
+                            <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>{p.qty} un.</span>
+                          </div>
+                        </div>
+                        <div style={{ height: 6, background: 'var(--surface-container)', borderRadius: 999, overflow: 'hidden' }}>
+                          <div style={{ width: `${(p.revenue / maxProd) * 100}%`, height: '100%', borderRadius: 999,
+                                        background: `var(--swatch-${1 + i % 8})`, transition: 'width 400ms ease' }}/>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+            }
+          </Card>
+
+          {/* Right column: channel + fulfillment */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <Card title="Receita por canal">
+              {(a?.byChannel || []).length === 0
+                ? <div className="muted" style={{ fontSize: 13, textAlign: 'center', padding: '12px 0' }}>Sem dados.</div>
+                : <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {(a.byChannel || []).map(({ k, v }) => (
+                      <div key={k}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13 }}>
+                          <span style={{ fontWeight: 500 }}>{CHAN_LABEL[k] || k}</span>
+                          <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(v)}</span>
+                        </div>
+                        <div style={{ height: 6, background: 'var(--surface-container)', borderRadius: 999, overflow: 'hidden' }}>
+                          <div style={{ width: `${(v / maxChan) * 100}%`, height: '100%', borderRadius: 999, background: 'var(--primary)', transition: 'width 400ms ease' }}/>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+              }
+            </Card>
+
+            <Card title="Estado de fulfillment (30d)">
+              {(a?.byFulfillment || []).length === 0
+                ? <div className="muted" style={{ fontSize: 13, textAlign: 'center', padding: '12px 0' }}>Sem dados.</div>
+                : <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {(a.byFulfillment || []).map(({ k, v }) => (
+                      <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
+                            <span>{FULL_LABEL[k] || k}</span>
+                            <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{v}</span>
+                          </div>
+                          <div style={{ height: 5, background: 'var(--surface-container)', borderRadius: 999, overflow: 'hidden' }}>
+                            <div style={{ width: `${(v / maxFull) * 100}%`, height: '100%', borderRadius: 999,
+                                          background: k === 'fulfilled' ? 'var(--success)' : k === 'on_hold' ? 'var(--error)' : 'var(--warning)',
+                                          transition: 'width 400ms ease' }}/>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+              }
+            </Card>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // ── PageAdmin ─────────────────────────────────────────────────────────────────
   const PageAdmin = ({ onExit }) => {
@@ -1151,17 +1566,22 @@
     const [screen, setScreen] = useState('overview');
     const [openOrder, setOpenOrder] = useState(null);
     const [openProduct, setOpenProduct] = useState(null);
+    const [openCustomer, setOpenCustomer] = useState(null);
     const [dark, setDark] = useState(false);
     const [toast, setToast] = useState({ msg: '', type: 'success' });
     const showToast = (msg, type = 'success') => setToast({ msg, type });
 
+    const handleOpenOrder = order => { setOpenCustomer(null); setOpenOrder(order); };
+    const handleOpenProduct = product => { setOpenProduct(product); };
+    const handleOpenCustomer = customer => { setOpenOrder(null); setOpenCustomer(customer); };
+
     const renderScreen = () => {
       switch (screen) {
-        case 'overview':  return <Overview  onNavigate={setScreen} onOpenOrder={setOpenOrder} onOpenProduct={setOpenProduct} showToast={showToast}/>;
-        case 'orders':    return <Orders    onOpenOrder={setOpenOrder} showToast={showToast}/>;
-        case 'products':  return <Products  onOpenProduct={setOpenProduct}/>;
-        case 'inventory': return <Inventory onOpenProduct={setOpenProduct} showToast={showToast}/>;
-        case 'customers': return <Customers/>;
+        case 'overview':  return <Overview  onNavigate={setScreen} onOpenOrder={handleOpenOrder} onOpenProduct={handleOpenProduct} showToast={showToast}/>;
+        case 'orders':    return <Orders    onOpenOrder={handleOpenOrder} showToast={showToast}/>;
+        case 'products':  return <Products  onOpenProduct={handleOpenProduct}/>;
+        case 'inventory': return <Inventory onOpenProduct={handleOpenProduct} showToast={showToast}/>;
+        case 'customers': return <Customers onOpenCustomer={handleOpenCustomer}/>;
         case 'analytics': return <Analytics/>;
         default:          return <Analytics/>;
       }
@@ -1177,9 +1597,10 @@
             {renderScreen()}
           </div>
         </div>
-        {openOrder   && <OrderPanel   order={openOrder}   onClose={() => setOpenOrder(null)}   showToast={showToast}/>}
-        {openProduct && <RestockModal product={openProduct} onClose={() => setOpenProduct(null)}
-                                     onSave={async (id, qty) => { await AdminAPI.updateStock(id, qty); showToast('Stock actualizado.'); }}/>}
+        {openOrder    && <OrderPanel    order={openOrder}     onClose={() => setOpenOrder(null)}    showToast={showToast}/>}
+        {openCustomer && <CustomerPanel customer={openCustomer} onClose={() => setOpenCustomer(null)} onOpenOrder={handleOpenOrder}/>}
+        {openProduct  && <RestockModal  product={openProduct} onClose={() => setOpenProduct(null)}
+                                       onSave={async (id, qty) => { await AdminAPI.updateStock(id, qty); showToast('Stock actualizado.'); }}/>}
         <Toast msg={toast.msg} type={toast.type} clear={() => setToast({ msg: '', type: 'success' })}/>
       </div>
     );
