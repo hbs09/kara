@@ -410,6 +410,48 @@
         .order('created_at', { ascending: false });
       return data || [];
     },
+
+    async deleteProducts(ids) {
+      await Promise.all([
+        db().from('product_tags').delete().in('product_id', ids),
+        db().from('product_colors').delete().in('product_id', ids),
+        db().from('product_variants').delete().in('product_id', ids),
+        db().from('product_images').delete().in('product_id', ids),
+      ]);
+      const { error } = await db().from('products').delete().in('id', ids);
+      if (error) throw error;
+    },
+
+    async getProductImages(productId) {
+      const { data } = await db().from('product_images')
+        .select('id,url,alt,sort_order').eq('product_id', productId).order('sort_order');
+      return data || [];
+    },
+
+    async uploadProductImage(productId, file) {
+      const ext = file.name.split('.').pop().toLowerCase() || 'jpg';
+      const path = `${productId}/${Date.now()}.${ext}`;
+      const { error: upErr } = await db().storage
+        .from('products').upload(path, file, { contentType: file.type });
+      if (upErr) throw upErr;
+      const { data: urlData } = db().storage.from('products').getPublicUrl(path);
+      const { error: insErr } = await db().from('product_images').insert({
+        product_id: productId,
+        url: urlData.publicUrl,
+        alt: file.name.replace(/\.[^.]+$/, ''),
+        sort_order: Date.now(),
+      });
+      if (insErr) throw insErr;
+      return urlData.publicUrl;
+    },
+
+    async deleteProductImage(imageId, url) {
+      await db().from('product_images').delete().eq('id', imageId);
+      try {
+        const path = url.split('/object/public/products/').pop();
+        if (path) await db().storage.from('products').remove([path]);
+      } catch {}
+    },
   };
 
   // ── useData hook ─────────────────────────────────────────────────────────────
@@ -425,8 +467,8 @@
   }
 
   // ── Utilities ────────────────────────────────────────────────────────────────
-  const fmtBRL = n => 'R$ ' + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-  const fmtNum = n => Number(n).toLocaleString('pt-BR');
+  const fmtEUR = n => Number(n).toLocaleString('pt-PT', { style: 'currency', currency: 'EUR' });
+  const fmtNum = n => Number(n).toLocaleString('pt-PT');
 
   const statusToChip = s => {
     const m = { Paid: 'chip-success', Pending: 'chip-warning', Cancelled: 'chip-neutral',
@@ -473,6 +515,8 @@
   const IcSun      = p => <Ic {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.9 4.9 1.4 1.4"/><path d="m17.7 17.7 1.4 1.4"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m4.9 19.1 1.4-1.4"/><path d="m17.7 6.3 1.4-1.4"/></Ic>;
   const IcStar     = p => <Ic {...p}><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6L12 17l-5.4 2.8 1-6L3.2 9.5l6.1-.9L12 3Z"/></Ic>;
   const IcBag2     = p => <Ic {...p}><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></Ic>;
+  const IcTrash    = p => <Ic {...p}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></Ic>;
+  const IcImage    = p => <Ic {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></Ic>;
 
   // ── Mock fallback data ────────────────────────────────────────────────────────
   const MOCK = {
@@ -626,6 +670,26 @@
     );
   };
 
+  // ── Confirm Modal ─────────────────────────────────────────────────────────────
+  const ConfirmModal = ({ title, body, confirmLabel = 'Confirmar', onConfirm, onClose, danger = false }) => (
+    <div className="animate-overlay modal-bg" onClick={onClose} style={{ position: 'fixed', inset: 0 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface-container-lowest)', borderRadius: 12, padding: 28, width: 400, boxShadow: 'var(--shadow-overlay)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <span className="h3">{title}</span>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}><IcClose size={18}/></button>
+        </div>
+        {body && <div style={{ fontSize: 14, color: 'var(--on-surface-variant)', marginBottom: 24, lineHeight: '20px' }}>{body}</div>}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button className="btn btn-secondary" onClick={onClose}>Cancelar</button>
+          <button className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`}
+                  onClick={() => { onConfirm(); onClose(); }}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   // ── Charts ────────────────────────────────────────────────────────────────────
   const AreaChart = ({ data, height = 240, color = 'var(--primary)' }) => {
     const pad = { top: 16, right: 12, bottom: 28, left: 52 };
@@ -682,7 +746,7 @@
                         padding: '6px 10px', borderRadius: 6, fontSize: 12,
                         whiteSpace: 'nowrap', pointerEvents: 'none', boxShadow: 'var(--shadow-overlay)' }}>
             <div style={{ fontWeight: 600 }}>{data[hover].d}</div>
-            <div style={{ opacity: 0.85 }}>{fmtBRL(data[hover].v)}</div>
+            <div style={{ opacity: 0.85 }}>{fmtEUR(data[hover].v)}</div>
           </div>
         )}
       </div>
@@ -796,7 +860,7 @@
 
         {/* KPIs */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
-          <KPICard label="Receita total" value={fmtBRL(kpis?.revenue || 0)} loading={kL}
+          <KPICard label="Receita total" value={fmtEUR(kpis?.revenue || 0)} loading={kL}
             sparkline={series?.map(d => d.v)} accent="var(--primary)"/>
           <KPICard label="Pedidos" value={fmtNum(kpis?.orders || 0)} loading={kL}
             sparkline={[2,3,2,4,5,4,3,5,6,5,7,8,7,kpis?.orders || 0]} accent="var(--swatch-4)"/>
@@ -835,7 +899,7 @@
                           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                         <td style={tdS}><span style={{ fontWeight: 600, color: 'var(--primary)' }}>{o.id}</span></td>
                         <td style={tdS}>{o.customer}</td>
-                        <td style={{ ...tdS, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(o.total)}</td>
+                        <td style={{ ...tdS, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtEUR(o.total)}</td>
                         <td style={tdS}>{statusToChip(o.status)}</td>
                         <td style={tdS}>{statusToChip(o.fulfillment)}</td>
                       </tr>
@@ -897,7 +961,7 @@
                     <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
                       <span className="muted" style={{ fontSize: 12 }}>{p.stock} em stock</span>
-                      <span className="tabular" style={{ fontSize: 13, fontWeight: 600 }}>{fmtBRL(p.price)}</span>
+                      <span className="tabular" style={{ fontSize: 13, fontWeight: 600 }}>{fmtEUR(p.price)}</span>
                     </div>
                   </div>
                 </div>
@@ -983,7 +1047,7 @@
                     <td style={tdS}>{o.customer}</td>
                     <td style={{ ...tdS, color: 'var(--on-surface-variant)', fontSize: 12 }}>{o.date}</td>
                     <td style={{ ...tdS, fontVariantNumeric: 'tabular-nums' }}>{o.items}</td>
-                    <td style={{ ...tdS, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(o.total)}</td>
+                    <td style={{ ...tdS, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtEUR(o.total)}</td>
                     <td style={tdS}>{statusToChip(o.status)}</td>
                     <td style={tdS}>{statusToChip(o.fulfillment)}</td>
                     <td style={{ ...tdS, color: 'var(--on-surface-variant)' }}>{o.channel}</td>
@@ -1056,7 +1120,7 @@
 
             {/* KPI summary */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
-              {[['Cliente', order.customer], ['Canal', order.channel], ['Total', fmtBRL(order.total)]].map(([l, v]) => (
+              {[['Cliente', order.customer], ['Canal', order.channel], ['Total', fmtEUR(order.total)]].map(([l, v]) => (
                 <div key={l} style={{ padding: '10px 14px', background: 'var(--surface-container-low)', borderRadius: 8 }}>
                   <div className="overline" style={{ fontSize: 10, marginBottom: 4 }}>{l}</div>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{v}</div>
@@ -1092,13 +1156,13 @@
                       </div>
                       <div style={{ fontSize: 13, color: 'var(--on-surface-variant)', flexShrink: 0 }}>×{it.qty}</div>
                       <div style={{ fontSize: 13, fontWeight: 600, minWidth: 72, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                        {fmtBRL(it.total_price ?? Number(it.qty) * Number(it.unit_price))}
+                        {fmtEUR(it.total_price ?? Number(it.qty) * Number(it.unit_price))}
                       </div>
                     </div>
                   ))}
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '10px 14px', background: 'var(--surface-container)', fontWeight: 700, fontSize: 13 }}>
                     <span>Total</span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(order.total)}</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtEUR(order.total)}</span>
                   </div>
                 </div>
               ) : (
@@ -1171,6 +1235,71 @@
           </div>
         </aside>
       </>
+    );
+  };
+
+  // ── Product Images ────────────────────────────────────────────────────────────
+  const ProductImages = ({ productId, showToast }) => {
+    const [images, setImages] = useState([]);
+    const [uploading, setUploading] = useState(false);
+
+    const load = useCallback(async () => {
+      const imgs = await AdminAPI.getProductImages(productId);
+      setImages(imgs);
+    }, [productId]);
+
+    useEffect(() => { load(); }, [load]);
+
+    const handleUpload = async e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (!configured()) { showToast('Sem ligação à BD.', 'error'); return; }
+      setUploading(true);
+      try {
+        await AdminAPI.uploadProductImage(productId, file);
+        await load();
+        showToast('Imagem adicionada.');
+      } catch(err) { showToast('Erro no upload: ' + err.message, 'error'); }
+      finally { setUploading(false); e.target.value = ''; }
+    };
+
+    const handleDelete = async img => {
+      try {
+        await AdminAPI.deleteProductImage(img.id, img.url);
+        setImages(prev => prev.filter(i => i.id !== img.id));
+        showToast('Imagem removida.');
+      } catch(err) { showToast('Erro ao remover: ' + err.message, 'error'); }
+    };
+
+    return (
+      <div>
+        {images.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+            {images.map(img => (
+              <div key={img.id} style={{ position: 'relative', width: 84, height: 84, borderRadius: 8, overflow: 'hidden',
+                                         border: '1px solid var(--outline-variant)', flexShrink: 0 }}>
+                <img src={img.url} alt={img.alt || ''} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}/>
+                <button onClick={() => handleDelete(img)}
+                        style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 999,
+                                 background: 'rgba(16,24,40,0.65)', border: 0, cursor: 'pointer',
+                                 display: 'grid', placeItems: 'center', color: '#fff' }}>
+                  <IcClose size={11}/>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {uploading
+          ? <button className="btn btn-secondary btn-sm" disabled><IcImage size={14}/> A fazer upload…</button>
+          : <label style={{ cursor: 'pointer' }}>
+              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleUpload}/>
+              <span className="btn btn-secondary btn-sm"><IcImage size={14}/> Adicionar imagem</span>
+            </label>
+        }
+        {images.length === 0 && !uploading && (
+          <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>Ainda sem imagens.</div>
+        )}
+      </div>
     );
   };
 
@@ -1440,6 +1569,17 @@
                   }
                 </div>
 
+                <hr className="hr"/>
+
+                {/* Imagens */}
+                <div>
+                  <div className="overline" style={{ marginBottom: 14 }}>Imagens do produto</div>
+                  {isNew
+                    ? <div className="muted" style={{ fontSize: 13 }}>Guarda o produto primeiro para poder adicionar imagens.</div>
+                    : <ProductImages productId={product.dbId} showToast={showToast}/>
+                  }
+                </div>
+
               </div>
           }
         </aside>
@@ -1448,10 +1588,23 @@
   };
 
   // ── Products (merged with Inventory) ─────────────────────────────────────────
-  const Products = ({ onOpenProduct, onNewProduct }) => {
+  const Products = ({ onOpenProduct, onNewProduct, showToast }) => {
     const { data: products, loading, reload } = useData(AdminAPI.getProducts, MOCK.products);
     const [q, setQ] = useState('');
     const [filter, setFilter] = useState('all');
+    const [selected, setSelected] = useState(new Set());
+    const [confirmDelete, setConfirmDelete] = useState(false);
+
+    const deleteSelected = async () => {
+      const ids = [...selected].filter(Boolean);
+      if (!configured() || !ids.length) return;
+      try {
+        await AdminAPI.deleteProducts(ids);
+        setSelected(new Set());
+        await reload();
+        showToast(`${ids.length} produto${ids.length > 1 ? 's' : ''} eliminado${ids.length > 1 ? 's' : ''}.`);
+      } catch(e) { showToast('Erro ao eliminar: ' + e.message, 'error'); }
+    };
 
     const all = products || [];
     const outOf = all.filter(p => p.stock === 0);
@@ -1479,7 +1632,12 @@
             <h1 className="h1" style={{ margin: 0 }}>Produtos</h1>
             <div className="muted" style={{ marginTop: 4 }}>{all.length} produtos{configured() ? '' : ' (demo)'}</div>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {selected.size > 0 && (
+              <button className="btn btn-danger" onClick={() => setConfirmDelete(true)}>
+                <IcTrash size={15}/> Eliminar ({selected.size})
+              </button>
+            )}
             <button className="btn btn-secondary" onClick={reload}><IcRefresh size={15}/> Actualizar</button>
             <button className="btn btn-primary" onClick={() => onNewProduct(reload)}><IcPlus size={15}/> Novo produto</button>
           </div>
@@ -1532,6 +1690,14 @@
               : <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ background: 'var(--surface-container-low)' }}>
+                      <th style={{ ...thS, width: 44, textAlign: 'center' }}>
+                        <input type="checkbox"
+                          checked={items.filter(p => p.dbId).length > 0 && items.filter(p => p.dbId).every(p => selected.has(p.dbId))}
+                          onChange={e => {
+                            if (e.target.checked) setSelected(new Set(items.filter(p => p.dbId).map(p => p.dbId)));
+                            else setSelected(new Set());
+                          }}/>
+                      </th>
                       {['Produto','SKU','Categoria','Preço','Stock','Cores','Estado',''].map(h => <th key={h} style={thS}>{h}</th>)}
                     </tr>
                   </thead>
@@ -1540,6 +1706,14 @@
                       <tr key={p.dbId || p.id} onClick={() => onOpenProduct({ ...p, _reload: reload })} style={{ cursor: 'pointer', opacity: p.is_active ? 1 : 0.55 }}
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-container-low)'}
                           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                        <td style={{ ...tdS, width: 44, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                          <input type="checkbox" checked={selected.has(p.dbId)}
+                            onChange={() => setSelected(prev => {
+                              const n = new Set(prev);
+                              n.has(p.dbId) ? n.delete(p.dbId) : n.add(p.dbId);
+                              return n;
+                            })}/>
+                        </td>
                         <td style={tdS}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                             <ProductThumb product={p}/>
@@ -1551,7 +1725,7 @@
                         </td>
                         <td style={{ ...tdS, fontFamily: 'ui-monospace,monospace', fontSize: 11, color: 'var(--on-surface-variant)' }}>{p.id}</td>
                         <td style={{ ...tdS, color: 'var(--on-surface-variant)' }}>{p.collection}</td>
-                        <td style={{ ...tdS, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(p.price)}</td>
+                        <td style={{ ...tdS, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtEUR(p.price)}</td>
                         <td style={{ ...tdS, fontVariantNumeric: 'tabular-nums', fontWeight: 700,
                                      color: p.stock === 0 ? 'var(--error)' : p.stock <= p.lowStockThreshold ? 'var(--warning)' : 'var(--success)' }}>
                           {p.stock}
@@ -1578,6 +1752,16 @@
                 </table>
           }
         </div>
+        {confirmDelete && (
+          <ConfirmModal
+            title="Eliminar produtos"
+            body={`Tens a certeza que queres eliminar ${selected.size} produto${selected.size > 1 ? 's' : ''}? Esta acção não pode ser desfeita.`}
+            confirmLabel={`Eliminar (${selected.size})`}
+            danger
+            onConfirm={deleteSelected}
+            onClose={() => setConfirmDelete(false)}
+          />
+        )}
       </div>
     );
   };
@@ -1605,7 +1789,7 @@
           {[
             ['Total clientes', fmtNum((customers||[]).length)],
             ['Com pedidos', fmtNum((customers||[]).filter(c => c.orders > 0).length)],
-            ['LTV total', fmtBRL(totalLTV)],
+            ['LTV total', fmtEUR(totalLTV)],
           ].map(([l, v]) => (
             <div key={l} className="card" style={{ padding: '16px 20px' }}>
               <div className="overline" style={{ fontSize: 11, marginBottom: 6 }}>{l}</div>
@@ -1647,7 +1831,7 @@
                         </td>
                         <td style={{ ...tdS, color: 'var(--on-surface-variant)' }}>{c.email}</td>
                         <td style={{ ...tdS, fontVariantNumeric: 'tabular-nums' }}>{c.orders}</td>
-                        <td style={{ ...tdS, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(c.ltv)}</td>
+                        <td style={{ ...tdS, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtEUR(c.ltv)}</td>
                         <td style={tdS}>{statusToChip(c.status)}</td>
                         <td style={{ ...tdS, color: 'var(--on-surface-variant)' }}>{c.joined}</td>
                         <td style={tdS}><IcChevRight size={14} stroke="var(--outline)"/></td>
@@ -1705,7 +1889,7 @@
 
             {/* Stats */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
-              {[['Pedidos', customer.orders], ['LTV', fmtBRL(customer.ltv)], ['Ticket médio', fmtBRL(avgOrder)]].map(([l, v]) => (
+              {[['Pedidos', customer.orders], ['LTV', fmtEUR(customer.ltv)], ['Ticket médio', fmtEUR(avgOrder)]].map(([l, v]) => (
                 <div key={l} style={{ padding: '12px 14px', background: 'var(--surface-container-low)', borderRadius: 8 }}>
                   <div className="overline" style={{ fontSize: 10, marginBottom: 4 }}>{l}</div>
                   <div style={{ fontWeight: 700, fontSize: 15 }}>{v}</div>
@@ -1739,7 +1923,7 @@
                               </div>
                             </div>
                             {statusToChip(stat)}
-                            <div style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>{fmtBRL(o.total)}</div>
+                            <div style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>{fmtEUR(o.total)}</div>
                           </div>
                         );
                       })}
@@ -1776,10 +1960,10 @@
         {/* Revenue period KPIs */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
           {[
-            { label: 'Hoje', value: fmtBRL(a?.today || 0) },
-            { label: 'Últimos 7 dias', value: fmtBRL(a?.week || 0) },
-            { label: 'Últimos 30 dias', value: fmtBRL(a?.month || 0), delta: a?.delta30 },
-            { label: 'Ticket médio (30d)', value: fmtBRL(a?.avgOrder || 0) },
+            { label: 'Hoje', value: fmtEUR(a?.today || 0) },
+            { label: 'Últimos 7 dias', value: fmtEUR(a?.week || 0) },
+            { label: 'Últimos 30 dias', value: fmtEUR(a?.month || 0), delta: a?.delta30 },
+            { label: 'Ticket médio (30d)', value: fmtEUR(a?.avgOrder || 0) },
           ].map(({ label, value, delta }) => (
             <div key={label} className="card" style={{ padding: 20 }}>
               <div className="overline" style={{ fontSize: 11, marginBottom: 8 }}>{label}</div>
@@ -1824,7 +2008,7 @@
                             {p.name}
                           </div>
                           <div style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-                            <span style={{ fontWeight: 700 }}>{fmtBRL(p.revenue)}</span>
+                            <span style={{ fontWeight: 700 }}>{fmtEUR(p.revenue)}</span>
                             <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>{p.qty} un.</span>
                           </div>
                         </div>
@@ -1848,7 +2032,7 @@
                       <div key={k}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13 }}>
                           <span style={{ fontWeight: 500 }}>{CHAN_LABEL[k] || k}</span>
-                          <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(v)}</span>
+                          <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtEUR(v)}</span>
                         </div>
                         <div style={{ height: 6, background: 'var(--surface-container)', borderRadius: 999, overflow: 'hidden' }}>
                           <div style={{ width: `${(v / maxChan) * 100}%`, height: '100%', borderRadius: 999, background: 'var(--primary)', transition: 'width 400ms ease' }}/>
@@ -1907,7 +2091,7 @@
       switch (screen) {
         case 'overview':  return <Overview  onNavigate={setScreen} onOpenOrder={handleOpenOrder} onOpenProduct={p => handleOpenProduct(p)} showToast={showToast}/>;
         case 'orders':    return <Orders    onOpenOrder={handleOpenOrder} showToast={showToast}/>;
-        case 'products':  return <Products  onOpenProduct={handleOpenProduct} onNewProduct={handleNewProduct}/>;
+        case 'products':  return <Products  onOpenProduct={handleOpenProduct} onNewProduct={handleNewProduct} showToast={showToast}/>;
         case 'customers': return <Customers onOpenCustomer={handleOpenCustomer}/>;
         case 'analytics': return <Analytics/>;
         default:          return <Analytics/>;

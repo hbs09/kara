@@ -167,7 +167,40 @@ ALTER TABLE public.profiles
 -- UPDATE public.profiles SET role = 'admin'
 -- WHERE id = (SELECT id FROM auth.users WHERE email = 'dev.henriquesousa@gmail.com');
 
--- 8. Pedidos de exemplo (descomenta para criar dados de teste)
+-- 8. Imagens de produto (tabela + storage)
+-- RLS: admin gere product_images
+DROP POLICY IF EXISTS "admin_manage_product_images" ON public.product_images;
+CREATE POLICY "admin_manage_product_images" ON public.product_images FOR ALL TO authenticated
+  USING      (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
+
+-- Leitura pública da tabela product_images
+DROP POLICY IF EXISTS "public_read_product_images" ON public.product_images;
+CREATE POLICY "public_read_product_images" ON public.product_images FOR SELECT
+  USING (true);
+
+-- Storage bucket "products" (público)
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('products', 'products', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Políticas de storage
+DROP POLICY IF EXISTS "storage_public_read_products"  ON storage.objects;
+DROP POLICY IF EXISTS "storage_admin_upload_products" ON storage.objects;
+DROP POLICY IF EXISTS "storage_admin_delete_products" ON storage.objects;
+
+CREATE POLICY "storage_public_read_products" ON storage.objects FOR SELECT
+  USING (bucket_id = 'products');
+
+CREATE POLICY "storage_admin_upload_products" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'products'
+    AND EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
+
+CREATE POLICY "storage_admin_delete_products" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'products'
+    AND EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
+
+-- 9. Pedidos de exemplo (descomenta para criar dados de teste)
 /*
 DO $$
 DECLARE
