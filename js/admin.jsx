@@ -149,12 +149,18 @@
         .order('created_at', { ascending: false })
         .limit(limit);
       if (error) { console.warn('Admin.getOrders:', error.message); return null; }
-      const STAT = { pending: 'Pending', paid: 'Paid', cancelled: 'Cancelled', refunded: 'Refunded' };
+      const STAT = {
+        pending: 'Pending', paid: 'Paid', confirmed: 'Paid',
+        processing: 'Em preparação', shipped: 'Enviado', delivered: 'Entregue',
+        cancelled: 'Cancelled', refunded: 'Refunded',
+      };
       const FULL = { unfulfilled: 'Unfulfilled', fulfilled: 'Fulfilled', on_hold: 'On hold', returned: 'Returned' };
       const CHAN = { web: 'Web', mobile: 'Mobile', instagram: 'Instagram', other: 'Outro' };
+      const PAID_STATUSES = ['paid', 'confirmed', 'processing', 'shipped', 'delivered'];
       return data.map(o => ({
         dbId: o.id,
-        id: '#KR-' + o.id.slice(-5).toUpperCase(),
+        id: o.order_ref ? '#' + o.order_ref : '#KR-' + o.id.slice(-5).toUpperCase(),
+        isPaid: PAID_STATUSES.includes(o.status),
         customer: o.customer_name || '—',
         email: o.profile_email || o.guest_email || '',
         date: new Date(o.created_at).toLocaleDateString('pt-PT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
@@ -179,7 +185,7 @@
           db().from('profiles').select('id', { count: 'exact', head: true }).neq('role', 'admin'),
           db().from('orders').select('id,total,status'),
         ]);
-        const paid = (ord.data || []).filter(o => o.status === 'paid');
+        const paid = (ord.data || []).filter(o => ['paid','confirmed','processing','shipped','delivered'].includes(o.status));
         const revenue = paid.reduce((s, o) => s + Number(o.total), 0);
         return {
           products: prod.count || 0,
@@ -197,7 +203,7 @@
       const { data } = await db()
         .from('orders')
         .select('created_at,total')
-        .eq('status', 'paid')
+        .in('status', ['paid','confirmed','processing','shipped','delivered'])
         .gte('created_at', new Date(Date.now() - 14 * 86400000).toISOString());
       if (!data?.length) return null;
       const map = {};
@@ -882,22 +888,22 @@
             <div>
               <div className="overline" style={{ marginBottom: 10 }}>Acções</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {order.rawStatus === 'pending' && (
+                {!order.isPaid && order.rawStatus !== 'cancelled' && order.rawStatus !== 'refunded' && (
                   <button className="btn btn-success" style={{ width: '100%', justifyContent: 'flex-start', gap: 10 }} onClick={markPaid} disabled={busy}>
                     <IcCheck size={16}/> Marcar como pago
                   </button>
                 )}
-                {order.rawFulfillment === 'unfulfilled' && order.rawStatus === 'paid' && (
+                {order.rawFulfillment === 'unfulfilled' && order.isPaid && (
                   <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'flex-start', gap: 10 }} onClick={markFulfilled} disabled={busy}>
                     <IcTruck size={16}/> Marcar como enviado
                   </button>
                 )}
-                {order.rawStatus === 'paid' && (
+                {order.isPaid && (
                   <button className="btn btn-danger" style={{ width: '100%', justifyContent: 'flex-start', gap: 10 }} onClick={markRefunded} disabled={busy}>
                     <IcReturn size={16}/> Processar reembolso
                   </button>
                 )}
-                {(order.rawStatus === 'pending' || order.rawStatus === 'paid') && (
+                {order.rawStatus !== 'cancelled' && order.rawStatus !== 'refunded' && (
                   <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start', gap: 10, color: 'var(--error)' }} onClick={markCancelled} disabled={busy}>
                     <IcClose size={16}/> Cancelar pedido
                   </button>

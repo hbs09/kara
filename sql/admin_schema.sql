@@ -4,7 +4,7 @@
 
 -- 1. Stock nos produtos
 ALTER TABLE public.products
-  ADD COLUMN IF NOT EXISTS stock_quantity   integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS stock_quantity    integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS low_stock_threshold integer NOT NULL DEFAULT 10;
 
 -- Stock inicial para os produtos existentes (ajusta os SKUs conforme os teus)
@@ -18,11 +18,10 @@ UPDATE public.products SET stock_quantity = 18, low_stock_threshold = 10 WHERE s
 -- Actualiza o resto que ficou a 0
 UPDATE public.products SET stock_quantity = 20 WHERE stock_quantity = 0 AND sku NOT ILIKE '%KNT%';
 
--- 2. Email nos perfis (opcional mas útil)
+-- 2. Email nos perfis (requer service role — corre via Supabase SQL Editor)
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS email text;
 
--- Preenche email a partir dos dados de auth.users (requer service role — corre via Supabase SQL Editor)
 UPDATE public.profiles p
 SET email = u.email
 FROM auth.users u
@@ -64,63 +63,72 @@ LEFT JOIN public.categories sub ON sub.id = p.category_id
 LEFT JOIN public.categories par ON par.id = sub.parent_id
 WHERE p.is_active = true;
 
--- 4. Tabela de pedidos
-CREATE TABLE IF NOT EXISTS public.orders (
-  id                 uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-  profile_id         uuid        REFERENCES public.profiles(id) ON DELETE SET NULL,
-  guest_email        text,
-  status             text        NOT NULL DEFAULT 'pending'
-                                 CHECK (status IN ('pending','paid','cancelled','refunded')),
-  fulfillment_status text        NOT NULL DEFAULT 'unfulfilled'
-                                 CHECK (fulfillment_status IN ('unfulfilled','fulfilled','on_hold','returned')),
-  channel            text        NOT NULL DEFAULT 'web'
-                                 CHECK (channel IN ('web','mobile','instagram','other')),
-  subtotal           numeric(10,2) NOT NULL DEFAULT 0,
-  shipping           numeric(10,2) NOT NULL DEFAULT 0,
-  tax                numeric(10,2) NOT NULL DEFAULT 0,
-  total              numeric(10,2) NOT NULL DEFAULT 0,
-  shipping_name      text,
-  shipping_address   jsonb,
-  notes              text,
-  created_at         timestamptz NOT NULL DEFAULT now(),
-  updated_at         timestamptz NOT NULL DEFAULT now()
-);
+-- 4. Adicionar colunas que faltam à tabela orders existente
+--    (a tabela orders já existe em kara_schema.sql)
+ALTER TYPE public.order_status ADD VALUE IF NOT EXISTS 'paid' AFTER 'pending';
 
--- 5. Itens de pedido
-CREATE TABLE IF NOT EXISTS public.order_items (
-  id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_id     uuid        NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
-  product_id   uuid        REFERENCES public.products(id) ON DELETE SET NULL,
-  product_name text        NOT NULL,
-  product_sku  text,
-  size         text,
-  quantity     integer     NOT NULL DEFAULT 1 CHECK (quantity > 0),
-  unit_price   numeric(10,2) NOT NULL,
-  created_at   timestamptz NOT NULL DEFAULT now()
-);
+ALTER TABLE public.orders
+  ADD COLUMN IF NOT EXISTS fulfillment_status text NOT NULL DEFAULT 'unfulfilled'
+    CHECK (fulfillment_status IN ('unfulfilled','fulfilled','on_hold','returned')),
+  ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'web'
+    CHECK (channel IN ('web','mobile','instagram','other'));
 
--- 6. Vista orders_full (agrega itens + dados do cliente)
+-- 5. Vista orders_full (usa os nomes reais das colunas da tabela orders)
 CREATE OR REPLACE VIEW public.orders_full AS
 SELECT
-  o.id, o.profile_id, o.guest_email, o.status, o.fulfillment_status, o.channel,
-  o.subtotal, o.shipping, o.tax, o.total,
-  o.shipping_name, o.shipping_address, o.notes,
-  o.created_at, o.updated_at,
-  p.first_name, p.last_name, p.email AS profile_email,
-  COALESCE(NULLIF(TRIM(COALESCE(p.first_name,'') || ' ' || COALESCE(p.last_name,'')), ''),
-           o.guest_email, 'Guest') AS customer_name,
-  COALESCE(SUM(oi.quantity), 0)::int AS total_items,
-  COUNT(oi.id)::int                  AS line_count
+  o.id,
+  o.order_ref,
+  o.profile_id,
+  o.email,
+  o.email          AS guest_email,         -- alias para compatibilidade com o admin
+  o.status::text,
+  o.fulfillment_status,
+  o.channel,
+  o.subtotal,
+  o.shipping_cost  AS shipping,
+  o.tax,
+  o.total,
+  TRIM(COALESCE(o.ship_first_name,'') || ' ' || COALESCE(o.ship_last_name,'')) AS shipping_name,
+  json_build_object(
+    'address1', o.ship_address_1,
+    'address2', o.ship_address_2,
+    'city',     o.ship_city,
+    'postal',   o.ship_postal,
+    'country',  o.ship_country,
+    'phone',    o.ship_phone
+  ) AS shipping_address,
+  o.notes,
+  o.tracking_number,
+  o.tracking_url,
+  o.shipped_at,
+  o.delivered_at,
+  o.payment_method::text,
+  o.payment_ref,
+  o.created_at,
+  o.updated_at,
+  p.first_name,
+  p.last_name,
+  p.email AS profile_email,
+  COALESCE(
+    NULLIF(TRIM(COALESCE(p.first_name,'') || ' ' || COALESCE(p.last_name,'')), ''),
+    o.email,
+    'Guest'
+  ) AS customer_name,
+  COALESCE(SUM(oi.qty), 0)::int AS total_items,
+  COUNT(oi.id)::int              AS line_count
 FROM public.orders o
-LEFT JOIN public.profiles    p  ON p.id  = o.profile_id
+LEFT JOIN public.profiles    p  ON p.id = o.profile_id
 LEFT JOIN public.order_items oi ON oi.order_id = o.id
-GROUP BY o.id, p.first_name, p.last_name, p.email;
+GROUP BY
+  o.id, o.order_ref, o.profile_id, o.email, o.status, o.fulfillment_status, o.channel,
+  o.subtotal, o.shipping_cost, o.tax, o.total,
+  o.ship_first_name, o.ship_last_name, o.ship_address_1, o.ship_address_2,
+  o.ship_city, o.ship_postal, o.ship_country, o.ship_phone,
+  o.notes, o.tracking_number, o.tracking_url, o.shipped_at, o.delivered_at,
+  o.payment_method, o.payment_ref, o.created_at, o.updated_at,
+  p.first_name, p.last_name, p.email;
 
--- 7. RLS
-ALTER TABLE public.orders      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
-
--- Admin vê e faz tudo
+-- 6. Políticas RLS para admin (as de cliente já existem em kara_schema.sql)
 DROP POLICY IF EXISTS "admin_orders"      ON public.orders;
 DROP POLICY IF EXISTS "admin_order_items" ON public.order_items;
 
@@ -132,21 +140,6 @@ CREATE POLICY "admin_order_items" ON public.order_items FOR ALL TO authenticated
   USING      (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'))
   WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
 
--- Clientes vêem os seus próprios pedidos
-DROP POLICY IF EXISTS "own_orders_select"      ON public.orders;
-DROP POLICY IF EXISTS "own_orders_insert"      ON public.orders;
-DROP POLICY IF EXISTS "own_order_items_select" ON public.order_items;
-
-CREATE POLICY "own_orders_select" ON public.orders
-  FOR SELECT TO authenticated USING (profile_id = auth.uid());
-
-CREATE POLICY "own_orders_insert" ON public.orders
-  FOR INSERT TO authenticated WITH CHECK (profile_id = auth.uid());
-
-CREATE POLICY "own_order_items_select" ON public.order_items
-  FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.orders WHERE id = order_id AND profile_id = auth.uid()));
-
 -- Admin pode actualizar stock de produtos
 DROP POLICY IF EXISTS "admin_update_products" ON public.products;
 CREATE POLICY "admin_update_products" ON public.products
@@ -154,34 +147,38 @@ CREATE POLICY "admin_update_products" ON public.products
   USING      (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'))
   WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
 
--- 8. Pedidos de exemplo (descomenta e substitui o profile_id pelo teu UUID real)
--- SELECT id FROM auth.users LIMIT 5;  -- para ver os IDs disponíveis
+-- 7. Role de admin nos perfis (se ainda não tiver sido feito)
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'customer'
+    CHECK (role IN ('customer', 'admin'));
 
+-- Dar role de admin ao teu utilizador:
+-- UPDATE public.profiles SET role = 'admin'
+-- WHERE id = (SELECT id FROM auth.users WHERE email = 'dev.henriquesousa@gmail.com');
+
+-- 8. Pedidos de exemplo (descomenta para criar dados de teste)
 /*
 DO $$
 DECLARE
   pid uuid := (SELECT id FROM public.profiles WHERE role = 'customer' LIMIT 1);
   p1  uuid; p2 uuid; p3 uuid;
 BEGIN
-  -- Pedido 1
-  INSERT INTO public.orders (profile_id, status, fulfillment_status, channel, subtotal, shipping, tax, total)
-  VALUES (pid, 'paid', 'fulfilled', 'web', 289.00, 15.00, 24.34, 328.34)
+  INSERT INTO public.orders (profile_id, email, status, subtotal, shipping_cost, tax, total, channel)
+  VALUES (pid, 'cliente@example.com', 'paid', 289.00, 15.00, 24.34, 328.34, 'web')
   RETURNING id INTO p1;
-  INSERT INTO public.order_items (order_id, product_name, product_sku, size, quantity, unit_price)
+  INSERT INTO public.order_items (order_id, product_name, product_sku, size_label, qty, unit_price)
   VALUES (p1, 'T-Shirt Essentials', 'HR-TEE-001', 'M', 1, 289.00);
 
-  -- Pedido 2
-  INSERT INTO public.orders (profile_id, status, fulfillment_status, channel, subtotal, shipping, tax, total)
-  VALUES (pid, 'paid', 'unfulfilled', 'mobile', 158.00, 15.00, 13.27, 186.27)
+  INSERT INTO public.orders (profile_id, email, status, fulfillment_status, subtotal, shipping_cost, tax, total, channel)
+  VALUES (pid, 'cliente@example.com', 'paid', 'unfulfilled', 158.00, 15.00, 13.27, 186.27, 'mobile')
   RETURNING id INTO p2;
-  INSERT INTO public.order_items (order_id, product_name, product_sku, size, quantity, unit_price)
+  INSERT INTO public.order_items (order_id, product_name, product_sku, size_label, qty, unit_price)
   VALUES (p2, 'Sweatshirt Classic', 'HR-SWT-003', 'L', 1, 158.00);
 
-  -- Pedido 3 (guest)
-  INSERT INTO public.orders (guest_email, status, fulfillment_status, channel, subtotal, shipping, tax, total)
-  VALUES ('guest@example.com', 'pending', 'unfulfilled', 'instagram', 320.00, 15.00, 26.88, 361.88)
+  INSERT INTO public.orders (email, status, subtotal, shipping_cost, tax, total, channel)
+  VALUES ('guest@example.com', 'pending', 320.00, 15.00, 26.88, 361.88, 'instagram')
   RETURNING id INTO p3;
-  INSERT INTO public.order_items (order_id, product_name, product_sku, size, quantity, unit_price)
+  INSERT INTO public.order_items (order_id, product_name, product_sku, size_label, qty, unit_price)
   VALUES (p3, 'Calças Cargo', 'HR-TRS-005', '32', 2, 160.00);
 END $$;
 */
