@@ -1933,10 +1933,11 @@
   <script>
     // ============================================================
     // CONFIGURAÇÃO SUPABASE
-    // Substitui pelos teus valores em: https://app.supabase.com → Settings → API
+    // Usa a URL do teu projeto e a chave anónima pública.
+    // NUNCA coloque a chave service_role secret no frontend.
     // ============================================================
-    const SUPABASE_URL = 'https://SEU_PROJETO.supabase.co';
-    const SUPABASE_ANON_KEY = 'SUA_ANON_KEY';
+    const SUPABASE_URL = 'https://dhfhamvzlwgyxdjykyxxt.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRoZmhhbXZ6bHdneGRqeHlreHh0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMzU5MzksImV4cCI6MjA5MjgxMTkzOX0.rPL9OLvgRarGTDVwb3CcpmPtO4w0J1wkRBCJIdo3uZY';
 
     const supabaseLib = window.supabase;   // save CDN library reference
     const supabaseClient = supabaseLib.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -3994,12 +3995,23 @@
 
 
     function PageAccount() {
-      const { authed, setAuthed, navigate, wishlist, toggleWishlist } = useStore();
+      const { authed, setAuthed, navigate, wishlist, toggleWishlist, sbUser, sbProfile, setSbProfile, showToast } = useStore();
       const [tab, setTab] = useState('login');
       const [section, setSection] = useState('orders');
 
       const [form, setForm] = useState({ email: '', password: '', firstName: '', lastName: '' });
       const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      useEffect(() => {
+        if (sbUser || sbProfile) {
+          setForm({
+            email: sbUser?.email || '',
+            password: '',
+            firstName: sbProfile?.first_name || '',
+            lastName: sbProfile?.last_name || '',
+          });
+        }
+      }, [sbUser, sbProfile]);
 
       if (!authed) {
         return (
@@ -4036,6 +4048,7 @@
                         if (window.__SUPABASE_CONFIGURED__) {
                           try {
                             await SupabaseAPI.signIn(form.email, form.password);
+                            navigate('/account');
                           } catch (e) { showToast('Credenciais inválidas'); }
                         } else { setAuthed(true); }
                       }}>
@@ -4079,6 +4092,7 @@
                           try {
                             await SupabaseAPI.signUp(form.email, form.password, form.firstName, form.lastName);
                             showToast('Confirma o e-mail para activar a conta');
+                            navigate('/account');
                           } catch (e) { showToast('Erro ao criar conta'); }
                         } else { setAuthed(true); }
                       }}>
@@ -4107,7 +4121,7 @@
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignPeças: 'baseline', flexWrap: 'wrap', gap: 16 }}>
                 <div>
-                  <h1 className="t-h1" style={{ margin: 0 }}>Olá, {form.firstName || 'Cliente'}</h1>
+                  <h1 className="t-h1" style={{ margin: 0 }}>Olá, {sbProfile?.first_name || sbUser?.email?.split('@')[0] || 'Cliente'}</h1>
                   <div className="t-mono" style={{ color: 'var(--muted)', marginTop: 8 }}>
                     CLIENTE #KR-2026-{Math.floor(Math.random() * 9000 + 1000)}
                   </div>
@@ -4259,6 +4273,8 @@
     }
 
     function ProfileSection({ form, setForm }) {
+      const { sbUser, showToast } = useStore();
+
       return (
         <div>
           <h2 className="t-h2" style={{ margin: 0, marginBottom: 24 }}>Perfil</h2>
@@ -4280,7 +4296,23 @@
               <input className="input" type="password" placeholder="••••••••" />
             </div>
           </div>
-          <button className="btn btn-primary" style={{ marginTop: 24 }}>Guardar alterações</button>
+          <button className="btn btn-primary" style={{ marginTop: 24 }} onClick={async () => {
+            if (!window.__SUPABASE_CONFIGURED__ || !sbUser) {
+              showToast('Sem ligação Supabase ou sessão inválida');
+              return;
+            }
+            try {
+              await SupabaseAPI.updateProfile(sbUser.id, {
+                first_name: form.firstName,
+                last_name: form.lastName,
+              });
+              showToast('Perfil atualizado');
+            } catch (e) {
+              showToast('Erro ao guardar perfil');
+            }
+          }}>
+            Guardar alterações
+          </button>
         </div>
       );
     }
