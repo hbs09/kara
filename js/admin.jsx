@@ -101,10 +101,11 @@
   const AdminAPI = {
     async getProducts() {
       if (!configured()) return null;
-      const [prodRes, catRes, colRes] = await Promise.all([
+      const [prodRes, catRes, colRes, imgRes] = await Promise.all([
         db().from('products').select('id,sku,name,price,type,is_active,stock_quantity,low_stock_threshold,sort_order,category_id').order('sort_order'),
         db().from('categories').select('id,label'),
         db().from('product_colors').select('product_id,color_id'),
+        db().from('product_images').select('product_id,url').order('sort_order'),
       ]);
       if (prodRes.error) { console.warn('Admin.getProducts:', prodRes.error.message); return null; }
       const catMap = {};
@@ -113,6 +114,10 @@
       (colRes.data || []).forEach(r => {
         if (!colorsByProduct[r.product_id]) colorsByProduct[r.product_id] = 0;
         colorsByProduct[r.product_id]++;
+      });
+      const firstImage = {};
+      (imgRes.data || []).forEach(img => {
+        if (!firstImage[img.product_id]) firstImage[img.product_id] = img.url;
       });
       return (prodRes.data || []).map((p, i) => ({
         dbId: p.id,
@@ -126,6 +131,7 @@
         lowStockThreshold: p.low_stock_threshold ?? 10,
         is_active: p.is_active,
         colorCount: colorsByProduct[p.id] || 0,
+        image: firstImage[p.id] || null,
         color: `var(--swatch-${1 + i % 8})`,
         accent: `var(--swatch-${1 + (i + 3) % 8})`,
       }));
@@ -187,7 +193,7 @@
       await db().from('product_variants').delete().eq('product_id', productId).is('color_id', null);
       if (sizeIds.length > 0) {
         const { error } = await db().from('product_variants')
-          .insert(sizeIds.map((size_id, sort_order) => ({ product_id: productId, size_id, color_id: null, stock: 10, sort_order })));
+          .insert(sizeIds.map(size_id => ({ product_id: productId, size_id, color_id: null, stock: 10 })));
         if (error) throw error;
       }
     },
@@ -412,12 +418,6 @@
     },
 
     async deleteProducts(ids) {
-      await Promise.all([
-        db().from('product_tags').delete().in('product_id', ids),
-        db().from('product_colors').delete().in('product_id', ids),
-        db().from('product_variants').delete().in('product_id', ids),
-        db().from('product_images').delete().in('product_id', ids),
-      ]);
       const { error } = await db().from('products').delete().in('id', ids);
       if (error) throw error;
     },
@@ -567,10 +567,14 @@
   };
 
   const ProductThumb = ({ product, size = 40 }) => (
-    <div style={{ width: size, height: size, borderRadius: 8, background: product.color,
+    <div style={{ width: size, height: size, borderRadius: 8,
+                  background: product.image ? 'var(--surface-container)' : product.color,
                   position: 'relative', overflow: 'hidden', flexShrink: 0,
                   boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.06)' }}>
-      <div style={{ position: 'absolute', inset: '40% 0 0 60%', background: product.accent, borderTopLeftRadius: 999 }}/>
+      {product.image
+        ? <img src={product.image} alt={product.name || ''} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}/>
+        : <div style={{ position: 'absolute', inset: '40% 0 0 60%', background: product.accent, borderTopLeftRadius: 999 }}/>
+      }
     </div>
   );
 
@@ -948,11 +952,12 @@
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
               {(products || []).slice(0, 4).map(p => (
                 <div key={p.id} onClick={() => onOpenProduct(p)} style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ aspectRatio: '4/5', background: p.color, borderRadius: 10, position: 'relative', overflow: 'hidden',
+                  <div style={{ aspectRatio: '4/5', background: p.image ? 'var(--surface-container)' : p.color, borderRadius: 10, position: 'relative', overflow: 'hidden',
                                 boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.06)', transition: 'transform 200ms' }}
                        onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
                        onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
-                    <div style={{ position: 'absolute', inset: 'auto 0 0 0', height: '40%', background: `linear-gradient(180deg,transparent,${p.accent})`, opacity: 0.55 }}/>
+                    {p.image && <img src={p.image} alt={p.name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}/>}
+                    <div style={{ position: 'absolute', inset: 'auto 0 0 0', height: '40%', background: `linear-gradient(180deg,transparent,${p.image ? 'rgba(0,0,0,0.55)' : p.accent})`, opacity: 0.55 }}/>
                     <span className="chip chip-neutral" style={{ position: 'absolute', top: 10, left: 10, background: 'rgba(255,255,255,0.85)', fontSize: 10 }}>{p.collection.split('/').pop()?.trim() || p.collection}</span>
                     {p.stock === 0 && <span className="chip chip-error" style={{ position: 'absolute', top: 10, right: 10, fontSize: 10 }}>Esgotado</span>}
                     {p.stock > 0 && p.stock <= p.lowStockThreshold && <span className="chip chip-warning" style={{ position: 'absolute', top: 10, right: 10, fontSize: 10 }}>Baixo</span>}
