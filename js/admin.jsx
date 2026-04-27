@@ -101,24 +101,95 @@
   const AdminAPI = {
     async getProducts() {
       if (!configured()) return null;
-      const { data, error } = await db()
-        .from('products_full')
-        .select('id,sku,name,price,category_label,gender_label,stock_quantity,low_stock_threshold,sort_order,sizes')
-        .order('sort_order');
-      if (error) { console.warn('Admin.getProducts:', error.message); return null; }
-      return data.map((p, i) => ({
+      const [prodRes, catRes, colRes] = await Promise.all([
+        db().from('products').select('id,sku,name,price,type,is_active,stock_quantity,low_stock_threshold,sort_order,category_id').order('sort_order'),
+        db().from('categories').select('id,label'),
+        db().from('product_colors').select('product_id,color_id'),
+      ]);
+      if (prodRes.error) { console.warn('Admin.getProducts:', prodRes.error.message); return null; }
+      const catMap = {};
+      (catRes.data || []).forEach(c => { catMap[c.id] = c.label; });
+      const colorsByProduct = {};
+      (colRes.data || []).forEach(r => {
+        if (!colorsByProduct[r.product_id]) colorsByProduct[r.product_id] = 0;
+        colorsByProduct[r.product_id]++;
+      });
+      return (prodRes.data || []).map((p, i) => ({
         dbId: p.id,
         id: p.sku || p.id,
         name: p.name,
-        collection: [p.gender_label, p.category_label].filter(Boolean).join(' / ') || '—',
+        type: p.type || '',
+        collection: catMap[p.category_id] || '—',
+        category_id: p.category_id,
         price: Number(p.price),
         stock: p.stock_quantity ?? 0,
         lowStockThreshold: p.low_stock_threshold ?? 10,
-        sold: 0,
+        is_active: p.is_active,
+        colorCount: colorsByProduct[p.id] || 0,
         color: `var(--swatch-${1 + i % 8})`,
         accent: `var(--swatch-${1 + (i + 3) % 8})`,
-        sizes: Array.isArray(p.sizes) ? p.sizes.map(s => s.size_label || s).filter(Boolean) : [],
       }));
+    },
+
+    async getColors() {
+      const { data } = await db().from('colors').select('id,slug,label,hex').order('sort_order');
+      return data || [];
+    },
+
+    async getSizes() {
+      const { data } = await db().from('sizes').select('id,slug,label').order('sort_order');
+      return data || [];
+    },
+
+    async getCategories() {
+      const { data } = await db().from('categories').select('id,slug,label').order('sort_order');
+      return (data || []).map(c => ({ id: c.id, slug: c.slug, label: c.label, path: c.label }));
+    },
+
+    async getProductColorIds(productId) {
+      const { data } = await db().from('product_colors').select('color_id').eq('product_id', productId);
+      return (data || []).map(r => r.color_id);
+    },
+
+    async getProductSizeIds(productId) {
+      const { data } = await db().from('product_variants').select('size_id').eq('product_id', productId).not('size_id', 'is', null);
+      return [...new Set((data || []).map(r => r.size_id))];
+    },
+
+    async getProductDetail(productId) {
+      const { data } = await db().from('products')
+        .select('id,sku,name,slug,description,price,type,weight,origin,materials,is_active,stock_quantity,low_stock_threshold,category_id,sort_order')
+        .eq('id', productId).single();
+      return data;
+    },
+
+    async updateProduct(dbId, fields) {
+      const { error } = await db().from('products').update(fields).eq('id', dbId);
+      if (error) throw error;
+    },
+
+    async createProduct(fields) {
+      const { data, error } = await db().from('products').insert(fields).select('id').single();
+      if (error) throw error;
+      return data.id;
+    },
+
+    async setProductColors(productId, colorIds) {
+      await db().from('product_colors').delete().eq('product_id', productId);
+      if (colorIds.length > 0) {
+        const { error } = await db().from('product_colors')
+          .insert(colorIds.map((color_id, sort_order) => ({ product_id: productId, color_id, sort_order })));
+        if (error) throw error;
+      }
+    },
+
+    async setProductSizes(productId, sizeIds) {
+      await db().from('product_variants').delete().eq('product_id', productId).is('color_id', null);
+      if (sizeIds.length > 0) {
+        const { error } = await db().from('product_variants')
+          .insert(sizeIds.map((size_id, sort_order) => ({ product_id: productId, size_id, color_id: null, stock: 10, sort_order })));
+        if (error) throw error;
+      }
     },
 
     async getCustomers() {
@@ -641,7 +712,6 @@
       { id: 'overview',  label: 'Visão Geral',  Icon: IcHome },
       { id: 'orders',    label: 'Pedidos',       Icon: IcBag },
       { id: 'products',  label: 'Produtos',      Icon: IcHanger },
-      { id: 'inventory', label: 'Inventário',    Icon: IcBox },
       { id: 'customers', label: 'Clientes',      Icon: IcUsers },
       { id: 'analytics', label: 'Analytics',     Icon: IcChart },
     ];
@@ -1104,153 +1174,410 @@
     );
   };
 
-  // ── Products ──────────────────────────────────────────────────────────────────
-  const Products = ({ onOpenProduct }) => {
-    const { data: products, loading, reload } = useData(AdminAPI.getProducts, MOCK.products);
-    const [q, setQ] = useState('');
-    const items = (products || []).filter(p => !q || p.name.toLowerCase().includes(q.toLowerCase()) || p.id.toLowerCase().includes(q.toLowerCase()));
+  // ── Product Panel ─────────────────────────────────────────────────────────────
+  const ProductPanel = ({ product, onClose, showToast, onSaved }) => {
+    const isNew = !product?.dbId;
+    const [form, setForm] = useState({
+      name: product?.name || '',
+      sku:  product?.id  || '',
+      price: product?.price ?? '',
+      type:  product?.type || '',
+      description: '',
+      materials: '',
+      weight: '',
+      origin: '',
+      stock_quantity: product?.stock ?? 0,
+      low_stock_threshold: product?.lowStockThreshold ?? 10,
+      is_active: product?.is_active ?? true,
+      category_id: product?.category_id || null,
+    });
+    const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+    const [selectedColors, setSelectedColors] = useState(new Set());
+    const [selectedSizes,  setSelectedSizes]  = useState(new Set());
+    const [allColors, setAllColors]   = useState([]);
+    const [allSizes,  setAllSizes]    = useState([]);
+    const [allCats,   setAllCats]     = useState([]);
+    const [loading,   setLoading]     = useState(true);
+    const [saving,    setSaving]      = useState(false);
+
+    useEffect(() => {
+      (async () => {
+        const [colors, sizes, cats] = await Promise.all([
+          AdminAPI.getColors(), AdminAPI.getSizes(), AdminAPI.getCategories(),
+        ]);
+        setAllColors(colors); setAllSizes(sizes); setAllCats(cats);
+        if (product?.dbId) {
+          const [detail, colorIds, sizeIds] = await Promise.all([
+            AdminAPI.getProductDetail(product.dbId),
+            AdminAPI.getProductColorIds(product.dbId),
+            AdminAPI.getProductSizeIds(product.dbId),
+          ]);
+          if (detail) {
+            setForm(f => ({
+              ...f,
+              name: detail.name, sku: detail.sku, price: detail.price,
+              type: detail.type || '', description: detail.description || '',
+              materials: Array.isArray(detail.materials) ? detail.materials.join(', ') : (detail.materials || ''),
+              weight: detail.weight || '', origin: detail.origin || '',
+              stock_quantity: detail.stock_quantity ?? 0,
+              low_stock_threshold: detail.low_stock_threshold ?? 10,
+              is_active: detail.is_active, category_id: detail.category_id || null,
+            }));
+          }
+          setSelectedColors(new Set(colorIds));
+          setSelectedSizes(new Set(sizeIds));
+        }
+        setLoading(false);
+      })();
+    }, [product?.dbId]);
+
+    const toggleColor = id => setSelectedColors(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    const toggleSize  = id => setSelectedSizes(prev  => { const n = new Set(prev);  n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+    const save = async () => {
+      if (!form.name.trim() || !form.sku.trim() || form.price === '') {
+        showToast('Nome, SKU e preço são obrigatórios.', 'error'); return;
+      }
+      if (!configured()) { showToast('Sem ligação à BD.', 'error'); return; }
+      setSaving(true);
+      try {
+        const slug = form.name.toLowerCase()
+          .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+          + (isNew ? '-' + Date.now().toString(36) : '');
+        const fields = {
+          name: form.name.trim(), sku: form.sku.trim(), price: Number(form.price),
+          type: form.type || null, description: form.description || null,
+          materials: form.materials ? form.materials.split(',').map(s => s.trim()).filter(Boolean) : null,
+          weight: form.weight || null, origin: form.origin || null,
+          stock_quantity: Number(form.stock_quantity) || 0,
+          low_stock_threshold: Number(form.low_stock_threshold) || 10,
+          is_active: form.is_active, category_id: form.category_id || null,
+        };
+        let productId = product?.dbId;
+        if (isNew) { fields.slug = slug; productId = await AdminAPI.createProduct(fields); }
+        else await AdminAPI.updateProduct(productId, fields);
+        await Promise.all([
+          AdminAPI.setProductColors(productId, [...selectedColors]),
+          AdminAPI.setProductSizes(productId, [...selectedSizes]),
+        ]);
+        showToast(isNew ? 'Produto criado.' : 'Produto guardado.');
+        if (onSaved) onSaved();
+        onClose();
+      } catch(e) { showToast('Erro: ' + e.message, 'error'); }
+      finally { setSaving(false); }
+    };
+
+    const fieldBox = (label, children) => (
+      <div>
+        <label className="overline" style={{ fontSize: 10, display: 'block', marginBottom: 6 }}>{label}</label>
+        {children}
+      </div>
+    );
 
     return (
-      <div style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 18 }} className="animate-fade">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <h1 className="h1" style={{ margin: 0 }}>Produtos</h1>
-            <div className="muted" style={{ marginTop: 4 }}>{(products || []).length} produtos{configured() ? '' : ' (demo)'}</div>
-          </div>
-          <button className="btn btn-secondary" onClick={reload}><IcRefresh size={15}/> Actualizar</button>
-        </div>
-        <div className="field" style={{ width: 320 }}>
-          <IcSearch size={14} stroke="var(--on-surface-variant)"/>
-          <input placeholder="Pesquisar por nome ou SKU…" value={q} onChange={e => setQ(e.target.value)}/>
-        </div>
-
-        {loading
-          ? <div className="muted" style={{ textAlign: 'center', padding: 40 }}>A carregar…</div>
-          : <div className="card" style={{ padding: 0 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ background: 'var(--surface-container-low)' }}>
-                    {['Produto','SKU','Secção','Preço','Stock','Estado',''].map(h => <th key={h} style={thS}>{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map(p => (
-                    <tr key={p.id} onClick={() => onOpenProduct(p)} style={{ cursor: 'pointer' }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-container-low)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                      <td style={tdS}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <ProductThumb product={p}/>
-                          <span style={{ fontWeight: 600 }}>{p.name}</span>
-                        </div>
-                      </td>
-                      <td style={{ ...tdS, fontFamily: 'ui-monospace,monospace', fontSize: 11, color: 'var(--on-surface-variant)' }}>{p.id}</td>
-                      <td style={{ ...tdS, color: 'var(--on-surface-variant)' }}>{p.collection}</td>
-                      <td style={{ ...tdS, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(p.price)}</td>
-                      <td style={{ ...tdS, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{p.stock}</td>
-                      <td style={tdS}>
-                        {p.stock === 0 ? <span className="chip chip-error"><span className="dot"/>Esgotado</span>
-                         : p.stock <= p.lowStockThreshold ? <span className="chip chip-warning"><span className="dot"/>Baixo</span>
-                         : <span className="chip chip-success"><span className="dot"/>Normal</span>}
-                      </td>
-                      <td style={tdS}><IcChevRight size={14} stroke="var(--outline)"/></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      <>
+        <div className="animate-overlay" onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(16,24,40,0.32)', zIndex: 50 }}/>
+        <aside className="animate-slide-right" style={{ position: 'fixed', top: 0, right: 0, height: '100%', width: 680,
+                                                        background: 'var(--surface-container-lowest)',
+                                                        boxShadow: '-12px 0 32px rgba(16,24,40,0.1)',
+                                                        zIndex: 51, display: 'flex', flexDirection: 'column',
+                                                        borderLeft: '1px solid var(--hairline)' }}>
+          {/* Header */}
+          <header style={{ padding: '16px 24px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexShrink: 0 }}>
+            <div>
+              <div className="h3">{isNew ? 'Novo produto' : (form.name || 'Editar produto')}</div>
+              {!isNew && <div className="muted" style={{ fontSize: 11, marginTop: 1, fontFamily: 'monospace' }}>{form.sku}</div>}
             </div>
-        }
-      </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button className={`btn btn-sm ${form.is_active ? 'btn-success' : 'btn-secondary'}`} onClick={() => setF('is_active', !form.is_active)}>
+                <span style={{ width: 7, height: 7, borderRadius: 999, background: form.is_active ? 'var(--success)' : 'var(--outline)', display: 'inline-block', marginRight: 4 }}/>
+                {form.is_active ? 'Activo' : 'Inactivo'}
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>{saving ? 'A guardar…' : 'Guardar'}</button>
+              <button className="btn btn-ghost btn-icon" onClick={onClose}><IcClose size={18}/></button>
+            </div>
+          </header>
+
+          {loading
+            ? <div className="muted" style={{ padding: 48, textAlign: 'center', flex: 1 }}>A carregar…</div>
+            : <div style={{ flex: 1, overflowY: 'auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+                {/* Basic info */}
+                <div>
+                  <div className="overline" style={{ marginBottom: 14 }}>Informação básica</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      {fieldBox('Nome *', <div className="field"><input value={form.name} onChange={e => setF('name', e.target.value)} placeholder="Nome do produto" style={{ fontSize: 15, fontWeight: 600 }}/></div>)}
+                    </div>
+                    {fieldBox('SKU *', <div className="field"><input value={form.sku} onChange={e => setF('sku', e.target.value)} placeholder="HR-TEE-001" style={{ fontFamily: 'monospace', fontSize: 13 }}/></div>)}
+                    {fieldBox('Preço (€) *', <div className="field"><input type="number" min="0" step="0.01" value={form.price} onChange={e => setF('price', e.target.value)} placeholder="0.00"/></div>)}
+                    {fieldBox('Tipo', <div className="field"><input value={form.type} onChange={e => setF('type', e.target.value)} placeholder="T-Shirt, Sweatshirt…"/></div>)}
+                    {fieldBox('Categoria',
+                      <div className="field">
+                        <select value={form.category_id || ''} onChange={e => setF('category_id', e.target.value || null)}
+                                style={{ border: 0, outline: 0, background: 'transparent', width: '100%', fontSize: 14, color: 'var(--on-surface)', fontFamily: 'inherit' }}>
+                          <option value="">— Sem categoria —</option>
+                          {allCats.map(c => <option key={c.id} value={c.id}>{c.path}</option>)}
+                        </select>
+                      </div>
+                    )}
+                    {fieldBox('Origem', <div className="field"><input value={form.origin} onChange={e => setF('origin', e.target.value)} placeholder="Portugal, Japão…"/></div>)}
+                    {fieldBox('Peso / GSM', <div className="field"><input value={form.weight} onChange={e => setF('weight', e.target.value)} placeholder="320 GSM"/></div>)}
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      {fieldBox('Materiais (separados por vírgula)', <div className="field"><input value={form.materials} onChange={e => setF('materials', e.target.value)} placeholder="100% Organic Cotton, Linen…"/></div>)}
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      {fieldBox('Descrição',
+                        <textarea value={form.description} onChange={e => setF('description', e.target.value)} placeholder="Descrição do produto…"
+                                  style={{ width: '100%', minHeight: 90, padding: '10px 12px', border: '1px solid var(--outline-variant)', borderRadius: 8,
+                                           resize: 'vertical', fontFamily: 'inherit', fontSize: 14, color: 'var(--on-surface)',
+                                           background: 'var(--surface-container-lowest)', outline: 'none', lineHeight: '20px' }}/>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <hr className="hr"/>
+
+                {/* Stock */}
+                <div>
+                  <div className="overline" style={{ marginBottom: 14 }}>Stock</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                    <div>
+                      {fieldBox('Quantidade disponível',
+                        <>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <button className="btn btn-secondary btn-sm btn-icon" onClick={() => setF('stock_quantity', Math.max(0, (form.stock_quantity || 0) - 1))}>−</button>
+                            <div className="field" style={{ flex: 1, textAlign: 'center' }}>
+                              <input type="number" min="0" value={form.stock_quantity}
+                                     onChange={e => setF('stock_quantity', Number(e.target.value))}
+                                     style={{ fontWeight: 700, fontSize: 18, textAlign: 'center', width: '100%' }}/>
+                            </div>
+                            <button className="btn btn-secondary btn-sm btn-icon" onClick={() => setF('stock_quantity', (form.stock_quantity || 0) + 1)}>+</button>
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                            {[10, 25, 50, 100].map(n => (
+                              <button key={n} className="btn btn-secondary btn-sm" style={{ flex: 1, fontSize: 12 }}
+                                      onClick={() => setF('stock_quantity', n)}>{n}</button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <div>
+                      {fieldBox('Mínimo de alerta', <div className="field"><input type="number" min="0" value={form.low_stock_threshold} onChange={e => setF('low_stock_threshold', Number(e.target.value))}/></div>)}
+                      <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>Aparece alerta de stock baixo quando a quantidade cair abaixo deste valor.</div>
+                    </div>
+                  </div>
+                </div>
+
+                <hr className="hr"/>
+
+                {/* Colors */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                    <span className="overline">Cores <span style={{ fontWeight: 400, opacity: .6 }}>({selectedColors.size} seleccionadas)</span></span>
+                    {selectedColors.size > 0 && (
+                      <button className="btn btn-ghost btn-sm" style={{ fontSize: 12 }} onClick={() => setSelectedColors(new Set())}>Limpar</button>
+                    )}
+                  </div>
+                  {allColors.length === 0
+                    ? <div className="muted" style={{ fontSize: 13 }}>Sem cores na BD. Adiciona cores em <code>colors</code>.</div>
+                    : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {allColors.map(c => {
+                          const on = selectedColors.has(c.id);
+                          return (
+                            <button key={c.id} onClick={() => toggleColor(c.id)} style={{
+                              display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px',
+                              border: `2px solid ${on ? 'var(--primary)' : 'var(--outline-variant)'}`,
+                              borderRadius: 8, background: on ? 'var(--primary-soft-2)' : 'transparent',
+                              cursor: 'pointer', fontSize: 13, fontWeight: on ? 600 : 400, color: 'var(--on-surface)',
+                              transition: 'border-color 100ms, background 100ms',
+                            }}>
+                              <span style={{ width: 14, height: 14, borderRadius: 999, background: c.hex, border: '1.5px solid rgba(0,0,0,0.15)', flexShrink: 0 }}/>
+                              {c.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                  }
+                </div>
+
+                <hr className="hr"/>
+
+                {/* Sizes */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                    <span className="overline">Tamanhos <span style={{ fontWeight: 400, opacity: .6 }}>({selectedSizes.size} seleccionados)</span></span>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {selectedSizes.size < allSizes.length && (
+                        <button className="btn btn-ghost btn-sm" style={{ fontSize: 12 }} onClick={() => setSelectedSizes(new Set(allSizes.map(s => s.id)))}>Todos</button>
+                      )}
+                      {selectedSizes.size > 0 && (
+                        <button className="btn btn-ghost btn-sm" style={{ fontSize: 12 }} onClick={() => setSelectedSizes(new Set())}>Limpar</button>
+                      )}
+                    </div>
+                  </div>
+                  {allSizes.length === 0
+                    ? <div className="muted" style={{ fontSize: 13 }}>Sem tamanhos na BD.</div>
+                    : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {allSizes.map(s => {
+                          const on = selectedSizes.has(s.id);
+                          return (
+                            <button key={s.id} onClick={() => toggleSize(s.id)} style={{
+                              minWidth: 52, height: 48, padding: '0 12px', display: 'grid', placeItems: 'center',
+                              border: `2px solid ${on ? 'var(--primary)' : 'var(--outline-variant)'}`,
+                              borderRadius: 8, background: on ? 'var(--primary-soft-2)' : 'transparent',
+                              cursor: 'pointer', fontSize: 13, fontWeight: on ? 700 : 400,
+                              color: on ? 'var(--primary)' : 'var(--on-surface)',
+                              transition: 'all 100ms',
+                            }}>
+                              {s.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                  }
+                </div>
+
+              </div>
+          }
+        </aside>
+      </>
     );
   };
 
-  // ── Inventory ─────────────────────────────────────────────────────────────────
-  const Inventory = ({ onOpenProduct, showToast }) => {
+  // ── Products (merged with Inventory) ─────────────────────────────────────────
+  const Products = ({ onOpenProduct, onNewProduct }) => {
     const { data: products, loading, reload } = useData(AdminAPI.getProducts, MOCK.products);
-    const [restock, setRestock] = useState(null);
-    const sorted = [...(products || [])].sort((a, b) => a.stock - b.stock);
-    const outOf  = sorted.filter(p => p.stock === 0);
-    const low    = sorted.filter(p => p.stock > 0 && p.stock <= p.lowStockThreshold);
-    const ok     = sorted.filter(p => p.stock > p.lowStockThreshold);
+    const [q, setQ] = useState('');
+    const [filter, setFilter] = useState('all');
 
-    const handleRestock = async (dbId, qty) => {
-      try { await AdminAPI.updateStock(dbId, qty); showToast(`Stock actualizado para ${qty} unidades.`); await reload(); }
-      catch(e) { showToast('Erro ao actualizar stock: ' + e.message, 'error'); }
-    };
+    const all = products || [];
+    const outOf = all.filter(p => p.stock === 0);
+    const low   = all.filter(p => p.stock > 0 && p.stock <= p.lowStockThreshold);
+    const inactive = all.filter(p => !p.is_active);
+
+    const items = all.filter(p => {
+      const matchQ = !q || p.name.toLowerCase().includes(q.toLowerCase()) || p.id.toLowerCase().includes(q.toLowerCase());
+      const matchF = filter === 'all' ? true : filter === 'out' ? p.stock === 0 : filter === 'low' ? (p.stock > 0 && p.stock <= p.lowStockThreshold) : !p.is_active;
+      return matchQ && matchF;
+    });
+
+    const filters = [
+      { id: 'all', label: 'Todos', count: all.length },
+      { id: 'low', label: 'Stock baixo', count: low.length },
+      { id: 'out', label: 'Esgotados',   count: outOf.length },
+      { id: 'inactive', label: 'Inactivos', count: inactive.length },
+    ];
 
     return (
       <div style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 18 }} className="animate-fade">
-        <div>
-          <h1 className="h1" style={{ margin: 0 }}>Inventário</h1>
-          <div className="muted" style={{ marginTop: 4 }}>
-            {outOf.length} esgotados · {low.length} com stock baixo · {ok.length} normais
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h1 className="h1" style={{ margin: 0 }}>Produtos</h1>
+            <div className="muted" style={{ marginTop: 4 }}>{all.length} produtos{configured() ? '' : ' (demo)'}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-secondary" onClick={reload}><IcRefresh size={15}/> Actualizar</button>
+            <button className="btn btn-primary" onClick={() => onNewProduct(reload)}><IcPlus size={15}/> Novo produto</button>
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
-          <div className="card" style={{ padding: 18, textAlign: 'center' }}>
-            <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--error)' }}>{outOf.length}</div>
-            <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>Esgotados</div>
-          </div>
-          <div className="card" style={{ padding: 18, textAlign: 'center' }}>
-            <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--warning)' }}>{low.length}</div>
-            <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>Stock baixo</div>
-          </div>
-          <div className="card" style={{ padding: 18, textAlign: 'center' }}>
-            <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--success)' }}>{ok.length}</div>
-            <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>Stock normal</div>
-          </div>
+        {/* KPI cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
+          {[
+            { label: 'Total activos',  val: all.filter(p => p.is_active).length,  color: 'var(--on-surface)' },
+            { label: 'Stock normal',   val: all.filter(p => p.stock > p.lowStockThreshold).length, color: 'var(--success)' },
+            { label: 'Stock baixo',    val: low.length,  color: 'var(--warning)' },
+            { label: 'Esgotados',      val: outOf.length, color: 'var(--error)' },
+          ].map(({ label, val, color }) => (
+            <div key={label} className="card" style={{ padding: '16px 20px' }}>
+              <div className="overline" style={{ fontSize: 11, marginBottom: 6 }}>{label}</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color }}>{val}</div>
+            </div>
+          ))}
         </div>
 
-        <Card title="Todos os produtos" action={
-          <button className="btn btn-secondary btn-sm" onClick={reload}><IcRefresh size={14}/> Actualizar</button>
-        } padded={false}>
+        {/* Filter tabs + search */}
+        <div className="card" style={{ padding: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--hairline)', padding: '0 6px' }}>
+            <div style={{ display: 'flex' }}>
+              {filters.map(f => (
+                <button key={f.id} onClick={() => setFilter(f.id)} style={{
+                  padding: '12px 14px', border: 0, background: 'transparent', cursor: 'pointer',
+                  fontSize: 13, fontWeight: filter === f.id ? 600 : 500,
+                  color: filter === f.id ? 'var(--on-surface)' : 'var(--on-surface-variant)',
+                  borderBottom: filter === f.id ? '2px solid var(--primary)' : '2px solid transparent', marginBottom: -1,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  {f.label}
+                  <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: filter === f.id ? 'var(--primary-soft-2)' : 'var(--surface-container)', color: filter === f.id ? 'var(--primary)' : 'var(--on-surface-variant)' }}>{f.count}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ padding: '8px 10px' }}>
+              <div className="field" style={{ width: 260 }}>
+                <IcSearch size={14} stroke="var(--on-surface-variant)"/>
+                <input placeholder="Nome ou SKU…" value={q} onChange={e => setQ(e.target.value)}/>
+              </div>
+            </div>
+          </div>
+
           {loading
             ? <div className="muted" style={{ padding: '40px 20px', textAlign: 'center' }}>A carregar…</div>
-            : <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ background: 'var(--surface-container-low)' }}>
-                    {['Produto','SKU','Secção','Stock actual','Mínimo','Estado','Acção'].map(h => <th key={h} style={thS}>{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.map(p => (
-                    <tr key={p.id}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-container-low)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                      <td style={tdS}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <ProductThumb product={p}/>
-                          <span style={{ fontWeight: 600, cursor: 'pointer' }} onClick={() => onOpenProduct(p)}>{p.name}</span>
-                        </div>
-                      </td>
-                      <td style={{ ...tdS, fontFamily: 'ui-monospace,monospace', fontSize: 11, color: 'var(--on-surface-variant)' }}>{p.id}</td>
-                      <td style={{ ...tdS, color: 'var(--on-surface-variant)' }}>{p.collection}</td>
-                      <td style={{ ...tdS, fontVariantNumeric: 'tabular-nums', fontWeight: 700,
-                                   color: p.stock === 0 ? 'var(--error)' : p.stock <= p.lowStockThreshold ? 'var(--warning)' : 'var(--on-surface)' }}>
-                        {p.stock}
-                      </td>
-                      <td style={{ ...tdS, fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface-variant)' }}>{p.lowStockThreshold}</td>
-                      <td style={tdS}>
-                        {p.stock === 0 ? <span className="chip chip-error"><span className="dot"/>Esgotado</span>
-                         : p.stock <= p.lowStockThreshold ? <span className="chip chip-warning"><span className="dot"/>Baixo</span>
-                         : <span className="chip chip-success"><span className="dot"/>Normal</span>}
-                      </td>
-                      <td style={tdS}>
-                        <button className="btn btn-secondary btn-sm" onClick={() => setRestock(p)}>
-                          <IcBox size={14}/> Repor
-                        </button>
-                      </td>
+            : items.length === 0
+              ? <div className="muted" style={{ padding: '40px 20px', textAlign: 'center' }}>Sem produtos.</div>
+              : <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--surface-container-low)' }}>
+                      {['Produto','SKU','Categoria','Preço','Stock','Cores','Estado',''].map(h => <th key={h} style={thS}>{h}</th>)}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {items.map(p => (
+                      <tr key={p.dbId || p.id} onClick={() => onOpenProduct({ ...p, _reload: reload })} style={{ cursor: 'pointer', opacity: p.is_active ? 1 : 0.55 }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-container-low)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                        <td style={tdS}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <ProductThumb product={p}/>
+                            <div>
+                              <div style={{ fontWeight: 600 }}>{p.name}</div>
+                              {p.type && <div className="muted" style={{ fontSize: 11 }}>{p.type}</div>}
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{ ...tdS, fontFamily: 'ui-monospace,monospace', fontSize: 11, color: 'var(--on-surface-variant)' }}>{p.id}</td>
+                        <td style={{ ...tdS, color: 'var(--on-surface-variant)' }}>{p.collection}</td>
+                        <td style={{ ...tdS, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(p.price)}</td>
+                        <td style={{ ...tdS, fontVariantNumeric: 'tabular-nums', fontWeight: 700,
+                                     color: p.stock === 0 ? 'var(--error)' : p.stock <= p.lowStockThreshold ? 'var(--warning)' : 'var(--success)' }}>
+                          {p.stock}
+                          {p.stock <= p.lowStockThreshold && p.stock > 0 && <span style={{ fontSize: 10, marginLeft: 4, opacity: .7 }}>↓</span>}
+                        </td>
+                        <td style={tdS}>
+                          {p.colorCount > 0
+                            ? <span className="chip chip-neutral">{p.colorCount} cor{p.colorCount > 1 ? 'es' : ''}</span>
+                            : <span className="muted" style={{ fontSize: 12 }}>—</span>}
+                        </td>
+                        <td style={tdS}>
+                          {!p.is_active
+                            ? <span className="chip chip-neutral"><span className="dot"/>Inactivo</span>
+                            : p.stock === 0
+                              ? <span className="chip chip-error"><span className="dot"/>Esgotado</span>
+                              : p.stock <= p.lowStockThreshold
+                                ? <span className="chip chip-warning"><span className="dot"/>Stock baixo</span>
+                                : <span className="chip chip-success"><span className="dot"/>Normal</span>}
+                        </td>
+                        <td style={tdS}><IcEdit size={14} stroke="var(--outline)"/></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
           }
-        </Card>
-
-        {restock && (
-          <RestockModal product={restock} onClose={() => setRestock(null)} onSave={handleRestock}/>
-        )}
+        </div>
       </div>
     );
   };
@@ -1571,16 +1898,16 @@
     const [toast, setToast] = useState({ msg: '', type: 'success' });
     const showToast = (msg, type = 'success') => setToast({ msg, type });
 
-    const handleOpenOrder = order => { setOpenCustomer(null); setOpenOrder(order); };
-    const handleOpenProduct = product => { setOpenProduct(product); };
-    const handleOpenCustomer = customer => { setOpenOrder(null); setOpenCustomer(customer); };
+    const handleOpenOrder    = order    => { setOpenCustomer(null); setOpenProduct(null); setOpenOrder(order); };
+    const handleOpenCustomer = customer => { setOpenOrder(null);   setOpenProduct(null); setOpenCustomer(customer); };
+    const handleOpenProduct  = product  => { setOpenOrder(null);   setOpenCustomer(null); setOpenProduct({ product, reload: product._reload }); };
+    const handleNewProduct   = reload   => { setOpenOrder(null);   setOpenCustomer(null); setOpenProduct({ product: null, reload }); };
 
     const renderScreen = () => {
       switch (screen) {
-        case 'overview':  return <Overview  onNavigate={setScreen} onOpenOrder={handleOpenOrder} onOpenProduct={handleOpenProduct} showToast={showToast}/>;
+        case 'overview':  return <Overview  onNavigate={setScreen} onOpenOrder={handleOpenOrder} onOpenProduct={p => handleOpenProduct(p)} showToast={showToast}/>;
         case 'orders':    return <Orders    onOpenOrder={handleOpenOrder} showToast={showToast}/>;
-        case 'products':  return <Products  onOpenProduct={handleOpenProduct}/>;
-        case 'inventory': return <Inventory onOpenProduct={handleOpenProduct} showToast={showToast}/>;
+        case 'products':  return <Products  onOpenProduct={handleOpenProduct} onNewProduct={handleNewProduct}/>;
         case 'customers': return <Customers onOpenCustomer={handleOpenCustomer}/>;
         case 'analytics': return <Analytics/>;
         default:          return <Analytics/>;
@@ -1599,8 +1926,8 @@
         </div>
         {openOrder    && <OrderPanel    order={openOrder}     onClose={() => setOpenOrder(null)}    showToast={showToast}/>}
         {openCustomer && <CustomerPanel customer={openCustomer} onClose={() => setOpenCustomer(null)} onOpenOrder={handleOpenOrder}/>}
-        {openProduct  && <RestockModal  product={openProduct} onClose={() => setOpenProduct(null)}
-                                       onSave={async (id, qty) => { await AdminAPI.updateStock(id, qty); showToast('Stock actualizado.'); }}/>}
+        {openProduct  && <ProductPanel  product={openProduct.product} onClose={() => setOpenProduct(null)}
+                                        showToast={showToast} onSaved={openProduct.reload}/>}
         <Toast msg={toast.msg} type={toast.type} clear={() => setToast({ msg: '', type: 'success' })}/>
       </div>
     );

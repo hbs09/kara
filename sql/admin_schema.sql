@@ -140,10 +140,21 @@ CREATE POLICY "admin_order_items" ON public.order_items FOR ALL TO authenticated
   USING      (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'))
   WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
 
--- Admin pode actualizar stock de produtos
+-- Admin pode gerir produtos (criar, editar, apagar)
 DROP POLICY IF EXISTS "admin_update_products" ON public.products;
-CREATE POLICY "admin_update_products" ON public.products
-  FOR UPDATE TO authenticated
+DROP POLICY IF EXISTS "admin_manage_products" ON public.products;
+CREATE POLICY "admin_manage_products" ON public.products FOR ALL TO authenticated
+  USING      (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
+
+-- Admin pode gerir cores e variantes dos produtos
+DROP POLICY IF EXISTS "admin_manage_product_colors" ON public.product_colors;
+CREATE POLICY "admin_manage_product_colors" ON public.product_colors FOR ALL TO authenticated
+  USING      (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
+
+DROP POLICY IF EXISTS "admin_manage_product_variants" ON public.product_variants;
+CREATE POLICY "admin_manage_product_variants" ON public.product_variants FOR ALL TO authenticated
   USING      (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'))
   WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
 
