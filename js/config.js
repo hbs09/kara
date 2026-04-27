@@ -1,6 +1,6 @@
-﻿// ============================================================
-// CONFIGURAÃ‡ÃƒO SUPABASE
-// Usa a URL do teu projeto e a chave anÃ³nima pÃºblica.
+// ============================================================
+// CONFIGURAÇÃO SUPABASE
+// Usa a URL do teu projeto e a chave anónima pública.
 // NUNCA coloque a chave service_role secret no frontend.
 // ============================================================
 const SUPABASE_URL = 'https://dhfhamvzlwgxdjxykxxt.supabase.co';
@@ -10,5 +10,5 @@ const supabaseLib = window.supabase;   // save CDN library reference
 const supabaseClient = supabaseLib.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 window.supabaseClient = supabaseClient; // expose client under different name
 
-// Indicador de configuraÃ§Ã£o
+// Indicador de configuração
 window.__SUPABASE_CONFIGURED__ = !SUPABASE_URL.includes('SEU_PROJETO');

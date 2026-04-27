@@ -1,8 +1,8 @@
-﻿
+
     const { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext } = React;
 
     // ============================================================
-    // SUPABASE API â€” Camada de dados
+    // SUPABASE API — Camada de dados
     // Quando o Supabase estiver configurado, usa a BD em vez de dados locais
     // ============================================================
 
@@ -28,8 +28,8 @@
             sizes: (p.sizes || []),
             available: (p.available_sizes || []),
             materials: p.materials || [],
-            weight: p.weight || 'â€”',
-            origin: p.origin || 'â€”',
+            weight: p.weight || '—',
+            origin: p.origin || '—',
             description: p.description || '',
             images: (p.images || []).map(img => img.url),
             tags: (p.tags || []),
@@ -42,7 +42,7 @@
         }
       },
 
-      // AutenticaÃ§Ã£o
+      // Autenticação
       async signIn(email, password) {
         const { data, error } = await window.supabaseClient.auth.signInWithPassword({ email, password });
         if (error) throw error;
@@ -130,7 +130,7 @@
           .upsert({ email, first_name: firstName }, { onConflict: 'email' });
       },
 
-      // Checkout â€” cria encomenda via funÃ§Ã£o RPC
+      // Checkout — cria encomenda via função RPC
       async placeOrder(params) {
         if (!window.__SUPABASE_CONFIGURED__) return 'KR-' + Math.floor(Math.random() * 900000 + 100000);
         const { data, error } = await window.supabaseClient.rpc('checkout_cart', params);
@@ -161,10 +161,10 @@
         ],
         sizes: ['XS', 'S', 'M', 'L', 'XL', 'XXL'],
         available: ['XS', 'S', 'M', 'L', 'XL'],
-        materials: ['100% AlgodÃ£o OrgÃ¢nico'],
+        materials: ['100% Algodão Orgânico'],
         weight: '320 GSM',
         origin: 'Portugal',
-        description: 'T-shirt em algodÃ£o pesado construÃ­da num fio de anel simples. Corte boxy com gola canelada reforÃ§ada. PrÃ©-lavada para mÃ­nima retraÃ§Ã£o.',
+        description: 'T-shirt em algodão pesado construída num fio de anel simples. Corte boxy com gola canelada reforçada. Pré-lavada para mínima retração.',
         images: [
           'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=900&q=80&auto=format&fit=crop',
           'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=900&q=80&auto=format&fit=crop',
@@ -187,10 +187,10 @@
         ],
         sizes: ['XS', 'S', 'M', 'L', 'XL'],
         available: ['S', 'M', 'L', 'XL'],
-        materials: ['85% AlgodÃ£o', '15% PoliÃ©ster'],
+        materials: ['85% Algodão', '15% Poliéster'],
         weight: '480 GSM',
         origin: 'Portugal',
-        description: 'Sweatshirt relaxada em french terry loopback pesado. Ombros caÃ­dos, punhos e barra canelados. Tingida em peÃ§a para profundidade tonal.',
+        description: 'Sweatshirt relaxada em french terry loopback pesado. Ombros caídos, punhos e barra canelados. Tingida em peça para profundidade tonal.',
         images: [
           'https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=900&q=80&auto=format&fit=crop',
           'https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?w=900&q=80&auto=format&fit=crop',
@@ -204,17 +204,17 @@
         name: 'Wide Leg Trouser',
         price: 195,
         category: 'bottoms',
-        type: 'CalÃ§as',
+        type: 'Calças',
         colors: [
           { id: 'black', label: 'Preto', hex: '#0a0a0a' },
           { id: 'taupe', label: 'Taupe', hex: '#7a6e5e' },
         ],
         sizes: ['28', '30', '32', '34', '36'],
         available: ['28', '30', '32', '34'],
-        materials: ['68% LÃ£', '30% PoliÃ©ster', '2% Elastano'],
+        materials: ['68% Lã', '30% Poliéster', '2% Elastano'],
         weight: '240 GSM',
-        origin: 'ItÃ¡lia',
-        description: 'CalÃ§a de perna larga em mistura de lÃ£ de quatro estaÃ§Ãµes. Frente com uma prega, bolsos laterais inclinados e barra limpa sem acabamento.',
+        origin: 'Itália',
+        description: 'Calça de perna larga em mistura de lã de quatro estações. Frente com uma prega, bolsos laterais inclinados e barra limpa sem acabamento.',
         images: [
           'https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?w=900&q=80&auto=format&fit=crop',
           'https://images.unsplash.com/photo-1473966968600-fa801b3a9746?w=900&q=80&auto=format&fit=crop',
@@ -235,10 +235,10 @@
         ],
         sizes: ['S', 'M', 'L', 'XL'],
         available: ['M', 'L', 'XL'],
-        materials: ['100% AlgodÃ£o (Encerado)'],
+        materials: ['100% Algodão (Encerado)'],
         weight: '14 oz',
-        origin: 'JapÃ£o',
-        description: 'Casaco de campo utilitÃ¡rio com quatro bolsos foles e fecho com flap de proteÃ§Ã£o. ConstruÃ­do em canvas encerado japonÃªs que desenvolve pÃ¡tina Ãºnica com o uso.',
+        origin: 'Japão',
+        description: 'Casaco de campo utilitário com quatro bolsos foles e fecho com flap de proteção. Construído em canvas encerado japonês que desenvolve pátina única com o uso.',
         images: [
           'https://images.unsplash.com/photo-1539533018447-63fcce2678e3?w=900&q=80&auto=format&fit=crop',
           'https://images.unsplash.com/photo-1591047139756-eb1ab9c8f99e?w=900&q=80&auto=format&fit=crop',
@@ -260,10 +260,10 @@
         ],
         sizes: ['S', 'M', 'L', 'XL'],
         available: ['S', 'M', 'L'],
-        materials: ['100% LÃ£ Merino'],
+        materials: ['100% Lã Merino'],
         weight: '12 GG',
-        origin: 'EscÃ³cia',
-        description: 'Meia-fecho em merino de malha fina com gola canelada estruturada. Peso mÃ©dio, respirÃ¡vel, regulaÃ§Ã£o natural da temperatura.',
+        origin: 'Escócia',
+        description: 'Meia-fecho em merino de malha fina com gola canelada estruturada. Peso médio, respirável, regulação natural da temperatura.',
         images: [
           'https://images.unsplash.com/photo-1614093302611-8efc4de12407?w=900&q=80&auto=format&fit=crop',
           'https://images.unsplash.com/photo-1620012253295-c15cc3e65df4?w=900&q=80&auto=format&fit=crop',
@@ -276,17 +276,17 @@
         name: 'Carpenter Pant',
         price: 175,
         category: 'bottoms',
-        type: 'CalÃ§as',
+        type: 'Calças',
         colors: [
           { id: 'cream', label: 'Creme', hex: '#e8e2d6' },
           { id: 'black', label: 'Preto', hex: '#0a0a0a' },
         ],
         sizes: ['28', '30', '32', '34', '36'],
         available: ['28', '30', '32', '34', '36'],
-        materials: ['100% Canvas de AlgodÃ£o'],
+        materials: ['100% Canvas de Algodão'],
         weight: '12 oz',
         origin: 'Portugal',
-        description: 'CalÃ§a de carpinteiro relaxada em canvas pesado. Loop de martelo, joelhos duplos e subida limpa na frente.',
+        description: 'Calça de carpinteiro relaxada em canvas pesado. Loop de martelo, joelhos duplos e subida limpa na frente.',
         images: [
           'https://images.unsplash.com/photo-1542272604-787c3835535d?w=900&q=80&auto=format&fit=crop',
           'https://images.unsplash.com/photo-1542272454315-7ad9f1b4e64e?w=900&q=80&auto=format&fit=crop',
@@ -299,17 +299,17 @@
         name: 'Object Cap',
         price: 55,
         category: 'accessories',
-        type: 'BonÃ©',
+        type: 'Boné',
         colors: [
           { id: 'black', label: 'Preto', hex: '#0a0a0a' },
           { id: 'cream', label: 'Creme', hex: '#e8e2d6' },
         ],
         sizes: ['One Size'],
         available: ['One Size'],
-        materials: ['100% Sarja de AlgodÃ£o'],
-        weight: 'â€”',
+        materials: ['100% Sarja de Algodão'],
+        weight: '—',
         origin: 'Portugal',
-        description: 'BonÃ© de seis painÃ©is sem estrutura. Fecho em tecido prÃ³prio com ferragens em latÃ£o envelhecido.',
+        description: 'Boné de seis painéis sem estrutura. Fecho em tecido próprio com ferragens em latão envelhecido.',
         images: [
           'https://images.unsplash.com/photo-1588850561407-ed78c282e89b?w=900&q=80&auto=format&fit=crop',
           'https://images.unsplash.com/photo-1521369909029-2afed882baee?w=900&q=80&auto=format&fit=crop',
@@ -330,14 +330,14 @@
         sizes: ['S', 'M', 'L', 'XL'],
         available: ['S', 'M', 'L'],
         materials: ['100% Nylon Reciclado'],
-        weight: 'â€”',
+        weight: '—',
         origin: 'Vietname',
-        description: 'Colete acolchoado compressÃ­vel em nylon ripstop reciclado. Fecho duplo, bolso interno com fecho.',
+        description: 'Colete acolchoado compressível em nylon ripstop reciclado. Fecho duplo, bolso interno com fecho.',
         images: [
           'https://images.unsplash.com/photo-1591047139756-eb1ab9c8f99e?w=900&q=80&auto=format&fit=crop',
           'https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=900&q=80&auto=format&fit=crop',
         ],
-        tags: ['EdiÃ§Ã£o Limitada'],
+        tags: ['Edição Limitada'],
       },
       {
         id: 'k-009',
@@ -352,10 +352,10 @@
         ],
         sizes: ['XS', 'S', 'M', 'L', 'XL'],
         available: ['S', 'M', 'L', 'XL'],
-        materials: ['100% AlgodÃ£o Pima'],
+        materials: ['100% Algodão Pima'],
         weight: '220 GSM',
         origin: 'Peru',
-        description: 'Manga longa cortada numa mÃ¡quina de malha tubular â€” um corpo Ãºnico, sem costuras, para uma queda limpa.',
+        description: 'Manga longa cortada numa máquina de malha tubular — um corpo único, sem costuras, para uma queda limpa.',
         images: [
           'https://images.unsplash.com/photo-1622519407650-3df9883f76a5?w=900&q=80&auto=format&fit=crop',
           'https://images.unsplash.com/photo-1583744946564-b52ac1c389c8?w=900&q=80&auto=format&fit=crop',
@@ -375,10 +375,10 @@
         ],
         sizes: ['One Size'],
         available: ['One Size'],
-        materials: ['100% Canvas de AlgodÃ£o'],
+        materials: ['100% Canvas de Algodão'],
         weight: '16 oz',
         origin: 'Portugal',
-        description: 'Tote em canvas pesado com base reforÃ§ada, pegas com rebites e bolso interior com fecho.',
+        description: 'Tote em canvas pesado com base reforçada, pegas com rebites e bolso interior com fecho.',
         images: [
           'https://images.unsplash.com/photo-1591561954557-26941169b49e?w=900&q=80&auto=format&fit=crop',
           'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=900&q=80&auto=format&fit=crop',
@@ -401,7 +401,7 @@
         available: ['One Size'],
         materials: ['100% Caxemira Mongol'],
         weight: '7 GG',
-        origin: 'ItÃ¡lia',
+        origin: 'Itália',
         description: 'Gorro canelado em caxemira. Dupla dobra, estruturado, macio.',
         images: [
           'https://images.unsplash.com/photo-1576871337632-b9aef4c17ab9?w=900&q=80&auto=format&fit=crop',
@@ -418,14 +418,14 @@
         type: 'Ganga',
         colors: [
           { id: 'black', label: 'Preto', hex: '#0a0a0a' },
-          { id: 'indigo', label: 'Ãndigo', hex: '#1c2840' },
+          { id: 'indigo', label: 'Índigo', hex: '#1c2840' },
         ],
         sizes: ['28', '30', '32', '34', '36'],
         available: ['30', '32', '34'],
-        materials: ['100% AlgodÃ£o (Selvedge)'],
+        materials: ['100% Algodão (Selvedge)'],
         weight: '14.5 oz',
-        origin: 'JapÃ£o',
-        description: 'Ganga bruta tecida em teares de lanÃ§adeira vintage em Okayama. Perna direita, cintura mÃ©dia, construÃ§Ã£o com rebites escondidos.',
+        origin: 'Japão',
+        description: 'Ganga bruta tecida em teares de lançadeira vintage em Okayama. Perna direita, cintura média, construção com rebites escondidos.',
         images: [
           'https://images.unsplash.com/photo-1542272604-787c3835535d?w=900&q=80&auto=format&fit=crop',
           'https://images.unsplash.com/photo-1604176354204-9268737828e4?w=900&q=80&auto=format&fit=crop',
@@ -439,7 +439,7 @@
       { id: 'tops', label: 'Tops' },
       { id: 'bottoms', label: 'Bottoms' },
       { id: 'outerwear', label: 'Outerwear' },
-      { id: 'accessories', label: 'AcessÃ³rios' },
+      { id: 'accessories', label: 'Acessórios' },
     ];
 
     const ALL_COLORS = [
@@ -449,21 +449,21 @@
       { id: 'graphite', label: 'Grafite', hex: '#3a3a3a' },
       { id: 'taupe', label: 'Taupe', hex: '#7a6e5e' },
       { id: 'navy', label: 'Azul-Marinho', hex: '#1c2233' },
-      { id: 'indigo', label: 'Ãndigo', hex: '#1c2840' },
+      { id: 'indigo', label: 'Índigo', hex: '#1c2840' },
     ];
 
     const ALL_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '28', '30', '32', '34', '36', 'One Size'];
 
     const SHIPPING = [
-      { id: 'standard', label: 'Standard', sub: '3â€“5 dias Ãºteis', price: 4.95 },
-      { id: 'express', label: 'Express', sub: '1â€“2 dias Ãºteis', price: 9.95 },
-      { id: 'pickup', label: 'Click & Collect', sub: 'Lisboa â€” pronto em 24h', price: 0 },
+      { id: 'standard', label: 'Standard', sub: '3–5 dias úteis', price: 4.95 },
+      { id: 'express', label: 'Express', sub: '1–2 dias úteis', price: 9.95 },
+      { id: 'pickup', label: 'Click & Collect', sub: 'Lisboa — pronto em 24h', price: 0 },
     ];
 
 
 
 
-    // Tiny inline icon set â€” 1.5px stroke, square caps to match design.md spec.
+    // Tiny inline icon set — 1.5px stroke, square caps to match design.md spec.
     const Icon = ({ name, size = 18, stroke = 1.5, ...rest }) => {
       const common = {
         width: size, height: size, viewBox: '0 0 24 24',
@@ -515,7 +515,7 @@
     }
 
     function StoreProvider({ children }) {
-      // Routing â€” hash based so refresh keeps you in place.
+      // Routing — hash based so refresh keeps you in place.
       const [route, setRoute] = useState(() => {
         const h = window.location.hash.replace(/^#/, '');
         return h || '/';
@@ -737,7 +737,7 @@
           <div className={`drawer-bg ${drawerOpen ? 'open' : ''}`} onClick={() => setDrawerOpen(false)}></div>
           <aside className={`drawer ${drawerOpen ? 'open' : ''}`} aria-hidden={!drawerOpen}>
             <div className="drawer-head">
-              <div style={{ display: 'flex', alignPeÃ§as: 'baseline', gap: 12 }}>
+              <div style={{ display: 'flex', alignPeças: 'baseline', gap: 12 }}>
                 <span className="t-caps">Cart</span>
                 <span className="t-mono" style={{ color: 'var(--muted)' }}>
                   [{String(cart.reduce((s, it) => s + it.qty, 0)).padStart(2, '0')}]
@@ -749,8 +749,8 @@
               {cart.length === 0 && (
                 <div className="empty" style={{ padding: '80px 24px' }}>
                   <Icon name="bag" size={28} stroke={1.2} />
-                  <div className="t-h3" style={{ marginTop: 8 }}>O carrinho estÃ¡ vazio</div>
-                  <div className="t-body-sm" style={{ maxWidth: 280 }}>Adiciona algumas peÃ§as e voltam a aparecer aqui.</div>
+                  <div className="t-h3" style={{ marginTop: 8 }}>O carrinho está vazio</div>
+                  <div className="t-body-sm" style={{ maxWidth: 280 }}>Adiciona algumas peças e voltam a aparecer aqui.</div>
                   <button className="btn btn-primary" onClick={() => { setDrawerOpen(false); navigate('/shop'); }}>Explorar loja</button>
                 </div>
               )}
@@ -766,9 +766,9 @@
                     <div className="cart-info">
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                         <span className="name">{p.name}</span>
-                        <span className="name">â‚¬{(p.price * it.qty).toFixed(0)}</span>
+                        <span className="name">€{(p.price * it.qty).toFixed(0)}</span>
                       </div>
-                      <span className="meta">{color.label} Â· {it.size} Â· {p.sku}</span>
+                      <span className="meta">{color.label} · {it.size} · {p.sku}</span>
                       <div className="ctrls">
                         <div className="qty">
                           <button onClick={() => updateQty(it.id, it.qty - 1)} aria-label="decrease">
@@ -791,13 +791,13 @@
               <div className="drawer-foot">
                 <div className="summary-row">
                   <span className="lbl">Subtotal</span>
-                  <span>â‚¬{cartSubtotal.toFixed(2)}</span>
+                  <span>€{cartSubtotal.toFixed(2)}</span>
                 </div>
                 <div className="summary-row" style={{ paddingBottom: 16 }}>
                   <span className="lbl t-mono-sm">Envio + impostos calculados no checkout</span>
                 </div>
                 <button className="btn btn-primary btn-block btn-lg" onClick={() => { setDrawerOpen(false); navigate('/checkout'); }}>
-                  Checkout Â· â‚¬{cartSubtotal.toFixed(2)}
+                  Checkout · €{cartSubtotal.toFixed(2)}
                 </button>
                 <button className="btn btn-ghost btn-block" style={{ marginTop: 8 }} onClick={() => { setDrawerOpen(false); navigate('/cart'); }}>
                   Ver carrinho completo
@@ -843,13 +843,13 @@
         <div className={`search-overlay ${searchOpen ? 'open' : ''}`} onClick={(e) => { if (e.target === e.currentTarget) setSearchOpen(false); }}>
           <div className="search-bar">
             <Icon name="search" size={20} stroke={1.2} />
-            <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Procurar peÃ§as, categorias, SKU..." />
+            <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Procurar peças, categorias, SKU..." />
             <button className="icon-btn" onClick={() => setSearchOpen(false)} aria-label="close"><Icon name="close" /></button>
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: '32px var(--pad-page)' }}>
             <div style={{ maxWidth: 'var(--container)', margin: '0 auto' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'baseline', marginBottom: 24 }}>
-                <span className="t-caps muted">{q ? 'Resultados' : 'SugestÃµes'}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignPeças: 'baseline', marginBottom: 24 }}>
+                <span className="t-caps muted">{q ? 'Resultados' : 'Sugestões'}</span>
                 <span className="t-mono" style={{ color: 'var(--muted)' }}>{String(results.length).padStart(2, '0')} items</span>
               </div>
               <div className="plp-grid" style={{ border: '1px solid var(--hairline)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
@@ -860,7 +860,7 @@
               {results.length === 0 && (
                 <div className="empty" style={{ padding: '60px 0' }}>
                   <div className="t-h3">Sem resultados para "{q}"</div>
-                  <div className="t-body-sm">Tenta outra palavra ou explora o catÃ¡logo completo.</div>
+                  <div className="t-body-sm">Tenta outra palavra ou explora o catálogo completo.</div>
                 </div>
               )}
             </div>
@@ -889,8 +889,8 @@
           </div>
           <div className="pcard-meta">
             <span className="name">{product.name}</span>
-            <span className="price">â‚¬{product.price}</span>
-            <span className="sku">{product.sku} Â· {product.colors.length} {product.colors.length === 1 ? 'cor' : 'cores'}</span>
+            <span className="price">€{product.price}</span>
+            <span className="sku">{product.sku} · {product.colors.length} {product.colors.length === 1 ? 'cor' : 'cores'}</span>
           </div>
         </div>
       );
@@ -910,7 +910,7 @@
                   <span className="brand-mark"></span> KARA
                 </div>
                 <p className="t-body-sm" style={{ maxWidth: 320 }}>
-                  Essenciais arquitetÃ³nicos. ConstruÃ­dos em pequenas sÃ©ries, em Portugal e na Europa.
+                  Essenciais arquitetónicos. Construídos em pequenas séries, em Portugal e na Europa.
                 </p>
                 <div style={{ display: 'flex', gap: 8, marginTop: 24 }}>
                   <button className="icon-btn" aria-label="instagram"><Icon name="instagram" /></button>
@@ -932,7 +932,7 @@
                 <ul>
                   <li>{link('/contact', 'Contacto')}</li>
                   <li><a>Envios</a></li>
-                  <li><a>DevoluÃ§Ãµes</a></li>
+                  <li><a>Devoluções</a></li>
                   <li><a>Tabela de tamanhos</a></li>
                   <li><a>FAQ</a></li>
                 </ul>
@@ -940,7 +940,7 @@
               <div className="footer-col">
                 <h4>Empresa</h4>
                 <ul>
-                  <li><a>Sobre nÃ³s</a></li>
+                  <li><a>Sobre nós</a></li>
                   <li><a>Materiais</a></li>
                   <li><a>Sustentabilidade</a></li>
                   <li><a>Imprensa</a></li>
@@ -949,8 +949,8 @@
               </div>
             </div>
             <div className="footer-bottom">
-              <span>Â© 2026 KARA Â· Lisboa, PT</span>
-              <span>EN Â· â‚¬EUR</span>
+              <span>© 2026 KARA · Lisboa, PT</span>
+              <span>EN · €EUR</span>
             </div>
           </div>
         </footer>
@@ -975,10 +975,10 @@
           flexWrap: 'wrap', justifyContent: 'center',
         }}>
           <span className="t-mono" style={{ color: 'var(--muted)' }}>SUPABASE</span>
-          <span>Modo demonstraÃ§Ã£o â€” configura o URL e a chave para ligar Ã  BD</span>
+          <span>Modo demonstração — configura o URL e a chave para ligar à BD</span>
           <button onClick={() => setVisible(false)} style={{
             background: 'transparent', border: 0, color: 'var(--muted)', cursor: 'pointer', fontSize: 14,
-          }}>âœ•</button>
+          }}>✕</button>
         </div>
       );
     }
@@ -1000,20 +1000,20 @@
               <div className="hero-copy container" style={{ paddingLeft: 'var(--pad-page)', paddingRight: 'var(--pad-page)', maxWidth: 'none' }}>
                 <div>
                   <div className="t-mono" style={{ color: 'var(--muted)', marginBottom: 24 }}>
-                    SS26 / EDIÃ‡ÃƒO 04
+                    SS26 / EDIÇÃO 04
                   </div>
                   <h1 className="t-display" style={{ margin: 0, marginBottom: 24 }}>
                     Feito para<br />durar.
                   </h1>
                   <p className="t-body" style={{ maxWidth: 440, color: 'var(--on-surface-variant)' }}>
-                    Essenciais construÃ­dos em pequenas sÃ©ries, com materiais auditados
-                    e construÃ§Ãµes que envelhecem bem. Sem coleÃ§Ãµes, sem temporadas.
+                    Essenciais construídos em pequenas séries, com materiais auditados
+                    e construções que envelhecem bem. Sem coleções, sem temporadas.
                   </p>
                 </div>
                 <div>
                   <div style={{ display: 'flex', gap: 12, marginBottom: 40, flexWrap: 'wrap' }}>
                     <button className="btn btn-primary btn-lg" onClick={() => navigate('/shop')}>
-                      Ver coleÃ§Ã£o <Icon name="arrow-r" size={14} />
+                      Ver coleção <Icon name="arrow-r" size={14} />
                     </button>
                     <button className="btn btn-secondary btn-lg" onClick={() => navigate('/shop/outerwear')}>
                       Outerwear
@@ -1021,15 +1021,15 @@
                   </div>
                   <div className="hero-meta">
                     <div>
-                      <span className="lbl">EdiÃ§Ã£o</span>
+                      <span className="lbl">Edição</span>
                       <span className="val">04 / 2026</span>
                     </div>
                     <div>
-                      <span className="lbl">ProduÃ§Ã£o</span>
-                      <span className="val">Portugal Â· IT Â· JP</span>
+                      <span className="lbl">Produção</span>
+                      <span className="val">Portugal · IT · JP</span>
                     </div>
                     <div>
-                      <span className="lbl">PeÃ§as</span>
+                      <span className="lbl">Peças</span>
                       <span className="val">12 SKUs</span>
                     </div>
                   </div>
@@ -1041,27 +1041,27 @@
             </div>
           </section>
 
-          {/* MARQUEE â€” technical readout */}
+          {/* MARQUEE — technical readout */}
           <div className="marquee">
             <div className="marquee-track">
-              <span>ENVIO GRÃTIS ACIMA DE â‚¬120 <span className="dot">Â·</span></span>
-              <span>DEVOLUÃ‡Ã•ES EM 30 DIAS <span className="dot">Â·</span></span>
-              <span>FABRICADO NA EU + JP <span className="dot">Â·</span></span>
-              <span>NOVO: TYPE-04 FIELD COAT <span className="dot">Â·</span></span>
-              <span>ENVIO GRÃTIS ACIMA DE â‚¬120 <span className="dot">Â·</span></span>
-              <span>DEVOLUÃ‡Ã•ES EM 30 DIAS <span className="dot">Â·</span></span>
-              <span>FABRICADO NA EU + JP <span className="dot">Â·</span></span>
-              <span>NOVO: TYPE-04 FIELD COAT <span className="dot">Â·</span></span>
+              <span>ENVIO GRÁTIS ACIMA DE €120 <span className="dot">·</span></span>
+              <span>DEVOLUÇÕES EM 30 DIAS <span className="dot">·</span></span>
+              <span>FABRICADO NA EU + JP <span className="dot">·</span></span>
+              <span>NOVO: TYPE-04 FIELD COAT <span className="dot">·</span></span>
+              <span>ENVIO GRÁTIS ACIMA DE €120 <span className="dot">·</span></span>
+              <span>DEVOLUÇÕES EM 30 DIAS <span className="dot">·</span></span>
+              <span>FABRICADO NA EU + JP <span className="dot">·</span></span>
+              <span>NOVO: TYPE-04 FIELD COAT <span className="dot">·</span></span>
             </div>
           </div>
 
-          {/* FEATURED â€” Index 01 */}
+          {/* FEATURED — Index 01 */}
           <section className="section-tight">
             <div className="container">
               <div className="sec-head">
                 <div className="left">
                   <span className="t-mono idx">[01]</span>
-                  <h2 className="t-h1" style={{ margin: 0 }}>O Ãndice</h2>
+                  <h2 className="t-h1" style={{ margin: 0 }}>O Índice</h2>
                 </div>
                 <a className="t-caps muted" style={{ cursor: 'pointer' }}
                   onClick={() => navigate('/shop')}>
@@ -1074,7 +1074,7 @@
             </div>
           </section>
 
-          {/* COLLECTIONS â€” split tiles */}
+          {/* COLLECTIONS — split tiles */}
           <section className="section-tight">
             <div className="container">
               <div className="sec-head">
@@ -1088,7 +1088,7 @@
                   <img src="https://images.unsplash.com/photo-1539533018447-63fcce2678e3?w=1400&q=85&auto=format&fit=crop" alt="" />
                   <div className="label">
                     <div>
-                      <div className="t-caps muted" style={{ marginBottom: 6 }}>OUTERWEAR Â· 04 STYLES</div>
+                      <div className="t-caps muted" style={{ marginBottom: 6 }}>OUTERWEAR · 04 STYLES</div>
                       <div className="t-h2" style={{ color: '#fff', margin: 0 }}>Casacos & Coletes</div>
                     </div>
                     <Icon name="arrow-r" size={20} />
@@ -1098,8 +1098,8 @@
                   <img src="https://images.unsplash.com/photo-1542272604-787c3835535d?w=1400&q=85&auto=format&fit=crop" alt="" />
                   <div className="label">
                     <div>
-                      <div className="t-caps muted" style={{ marginBottom: 6 }}>BOTTOMS Â· 03 STYLES</div>
-                      <div className="t-h2" style={{ color: '#fff', margin: 0 }}>CalÃ§as & Ganga</div>
+                      <div className="t-caps muted" style={{ marginBottom: 6 }}>BOTTOMS · 03 STYLES</div>
+                      <div className="t-h2" style={{ color: '#fff', margin: 0 }}>Calças & Ganga</div>
                     </div>
                     <Icon name="arrow-r" size={20} />
                   </div>
@@ -1113,7 +1113,7 @@
             </div>
           </section>
 
-          {/* MANIFESTO â€” large type spec block */}
+          {/* MANIFESTO — large type spec block */}
           <section className="section-tight">
             <div className="container">
               <div style={{ borderTop: '1px solid var(--hairline)', borderBottom: '1px solid var(--hairline)', padding: '64px 0' }}>
@@ -1124,14 +1124,14 @@
                   </div>
                   <div>
                     <p className="t-h1" style={{ margin: 0, maxWidth: 880, fontWeight: 500 }}>
-                      Desenhamos peÃ§as para uso diÃ¡rio, nÃ£o para mudanÃ§a diÃ¡ria.<br />
-                      <span style={{ color: 'var(--muted)' }}>Um padrÃ£o, refinado ao longo de anos. FÃ¡bricas auditadas. Garantias longas. ReparaÃ§Ãµes bem-vindas.</span>
+                      Desenhamos peças para uso diário, não para mudança diária.<br />
+                      <span style={{ color: 'var(--muted)' }}>Um padrão, refinado ao longo de anos. Fábricas auditadas. Garantias longas. Reparações bem-vindas.</span>
                     </p>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 32, marginTop: 56, paddingTop: 32, borderTop: '1px solid var(--hairline)' }} className="stats-grid">
                       <Stat n="04" l="ateliers parceiros" />
                       <Stat n="08yr" l="de garantia" />
                       <Stat n="100%" l="materiais rastreados" />
-                      <Stat n="0" l="promoÃ§Ãµes / saldos" />
+                      <Stat n="0" l="promoções / saldos" />
                     </div>
                   </div>
                 </div>
@@ -1164,13 +1164,13 @@
             </div>
           </section>
 
-          {/* SERVICES â€” strip of 4 */}
+          {/* SERVICES — strip of 4 */}
           <section style={{ borderTop: '1px solid var(--hairline)', borderBottom: '1px solid var(--hairline)', marginTop: 40 }}>
             <div className="container">
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, background: 'var(--hairline)', margin: '0 calc(var(--pad-page) * -1)' }} className="svc-grid">
                 <Service icon="truck" t="Envio neutro" s="Carbono compensado em todas as encomendas." />
-                <Service icon="rotate" t="30 dias" s="Troca ou devoluÃ§Ã£o gratuita em 30 dias." />
-                <Service icon="shield" t="Garantia 8 anos" s="ReparaÃ§Ãµes cobertas em peÃ§as construÃ­das." />
+                <Service icon="rotate" t="30 dias" s="Troca ou devolução gratuita em 30 dias." />
+                <Service icon="shield" t="Garantia 8 anos" s="Reparações cobertas em peças construídas." />
                 <Service icon="leaf" t="Materiais auditados" s="Cadeia de fornecimento totalmente rastreada." />
               </div>
               <style>{`
@@ -1261,7 +1261,7 @@
                 <div>
                   <h1 className="t-h1" style={{ margin: 0 }}>{catLabel}</h1>
                   <p className="t-body-sm" style={{ marginTop: 8, maxWidth: 520 }}>
-                    Pequenas sÃ©ries em materiais auditados. ConstruÃ­dos para durar dÃ©cadas.
+                    Pequenas séries em materiais auditados. Construídos para durar décadas.
                   </p>
                 </div>
                 <span className="t-mono" style={{ color: 'var(--muted)' }}>
@@ -1318,12 +1318,12 @@
                 </div>
 
                 <div className="filter-group">
-                  <h4>PreÃ§o â€” mÃ¡x. â‚¬{priceMax}</h4>
+                  <h4>Preço — máx. €{priceMax}</h4>
                   <input type="range" min={50} max={500} step={10} value={priceMax}
                     onChange={(e) => setPriceMax(Number(e.target.value))}
                     style={{ width: '100%' }} />
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', marginTop: 6 }}>
-                    <span>â‚¬50</span><span>â‚¬500</span>
+                    <span>€50</span><span>€500</span>
                   </div>
                 </div>
 
@@ -1339,13 +1339,13 @@
               <div className="plp-main">
                 <div className="plp-toolbar">
                   <span className="count">[{String(filtered.length).padStart(2, '0')}] resultados</span>
-                  <div style={{ display: 'flex', gap: 12, alignPeÃ§as: 'center' }}>
+                  <div style={{ display: 'flex', gap: 12, alignPeças: 'center' }}>
                     <span className="t-mono" style={{ color: 'var(--muted)', fontSize: 10 }}>ORDENAR</span>
                     <select className="select" value={sort} onChange={(e) => setSort(e.target.value)}>
                       <option value="featured">Destaque</option>
                       <option value="new">Novidades</option>
-                      <option value="price-asc">PreÃ§o â€” crescente</option>
-                      <option value="price-desc">PreÃ§o â€” decrescente</option>
+                      <option value="price-asc">Preço — crescente</option>
+                      <option value="price-desc">Preço — decrescente</option>
                     </select>
                   </div>
                 </div>
@@ -1353,7 +1353,7 @@
                 {filtered.length === 0 ? (
                   <div className="empty" style={{ padding: 80 }}>
                     <div className="t-h3">Sem resultados</div>
-                    <div className="t-body-sm">Ajusta os filtros para ver mais peÃ§as.</div>
+                    <div className="t-body-sm">Ajusta os filtros para ver mais peças.</div>
                     <button className="btn btn-secondary"
                       onClick={() => { setColor(null); setSize(null); setPriceMax(500); }}>
                       Limpar filtros
@@ -1431,7 +1431,7 @@
               {/* INFO */}
               <div className="pdp-info">
                 <div className="pdp-head">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'flex-start', gap: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignPeças: 'flex-start', gap: 16 }}>
                     <div>
                       <div className="t-mono" style={{ color: 'var(--muted)', marginBottom: 8 }}>
                         {product.sku}
@@ -1443,7 +1443,7 @@
                       <Icon name={isFav ? 'heart-fill' : 'heart'} />
                     </button>
                   </div>
-                  <div className="t-h2" style={{ marginTop: 8 }}>â‚¬{product.price}</div>
+                  <div className="t-h2" style={{ marginTop: 8 }}>€{product.price}</div>
                   <p className="t-body-sm" style={{ marginTop: 4 }}>
                     {product.description}
                   </p>
@@ -1494,11 +1494,11 @@
                 {/* CTA */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <button className="btn btn-primary btn-lg btn-block" onClick={handleAdd} disabled={!size}>
-                    {size ? `Adicionar â€” â‚¬${product.price}` : 'Seleciona um tamanho'}
+                    {size ? `Adicionar — €${product.price}` : 'Seleciona um tamanho'}
                   </button>
-                  <div style={{ display: 'flex', gap: 12, alignPeÃ§as: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 12, marginTop: 4 }}>
+                  <div style={{ display: 'flex', gap: 12, alignPeças: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 12, marginTop: 4 }}>
                     <Icon name="truck" size={14} stroke={1.4} />
-                    <span>Envio gratuito acima de â‚¬120 Â· DevoluÃ§Ãµes em 30 dias</span>
+                    <span>Envio gratuito acima de €120 · Devoluções em 30 dias</span>
                   </div>
                 </div>
 
@@ -1515,12 +1515,12 @@
                   </DisclosureRow>
                   <DisclosureRow open={openSection === 'care'} onToggle={() => sectionToggle('care')} title="Cuidados">
                     <p className="t-body-sm" style={{ margin: 0 }}>
-                      Lavar a 30Â°C com peÃ§as semelhantes. NÃ£o usar lixÃ­via. Secar Ã  sombra. Engomar a temperatura mÃ©dia se necessÃ¡rio.
+                      Lavar a 30°C com peças semelhantes. Não usar lixívia. Secar à sombra. Engomar a temperatura média se necessário.
                     </p>
                   </DisclosureRow>
-                  <DisclosureRow open={openSection === 'ship'} onToggle={() => sectionToggle('ship')} title="Envio & devoluÃ§Ãµes">
+                  <DisclosureRow open={openSection === 'ship'} onToggle={() => sectionToggle('ship')} title="Envio & devoluções">
                     <p className="t-body-sm" style={{ margin: 0 }}>
-                      Envio standard 3â€“5 dias Ãºteis (â‚¬4,95) ou express 1â€“2 dias Ãºteis (â‚¬9,95). GrÃ¡tis acima de â‚¬120. DevoluÃ§Ãµes gratuitas em 30 dias.
+                      Envio standard 3–5 dias úteis (€4,95) ou express 1–2 dias úteis (€9,95). Grátis acima de €120. Devoluções gratuitas em 30 dias.
                     </p>
                   </DisclosureRow>
                 </div>
@@ -1560,7 +1560,7 @@
         <div style={{ borderTop: '1px solid var(--hairline)' }}>
           <button onClick={onToggle}
             style={{
-              width: '100%', display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'center',
+              width: '100%', display: 'flex', justifyContent: 'space-between', alignPeças: 'center',
               background: 'transparent', border: 0, padding: '18px 0', color: '#fff',
               fontSize: 13, fontWeight: 500, letterSpacing: '0.02em', cursor: 'pointer'
             }}>
@@ -1596,9 +1596,9 @@
               </div>
               <div className="empty">
                 <Icon name="bag" size={36} stroke={1.2} />
-                <div className="t-h2" style={{ margin: 0 }}>O teu carrinho estÃ¡ vazio</div>
+                <div className="t-h2" style={{ margin: 0 }}>O teu carrinho está vazio</div>
                 <p className="t-body-sm" style={{ maxWidth: 360, textAlign: 'center' }}>
-                  Explora os essenciais â€” peÃ§as construÃ­das para durar.
+                  Explora os essenciais — peças construídas para durar.
                 </p>
                 <button className="btn btn-primary btn-lg" onClick={() => navigate('/shop')}>
                   Explorar loja
@@ -1618,7 +1618,7 @@
                 <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
                 <span style={{ color: '#fff' }}>CART</span>
               </div>
-              <div style={{ display: 'flex', alignPeÃ§as: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+              <div style={{ display: 'flex', alignPeças: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
                 <h1 className="t-h1" style={{ margin: 0 }}>Carrinho</h1>
                 <span className="t-mono" style={{ color: 'var(--muted)' }}>
                   [{String(cart.reduce((s, it) => s + it.qty, 0)).padStart(2, '0')}] artigos
@@ -1642,9 +1642,9 @@
                       <div className="cart-info">
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                           <span className="name" style={{ cursor: 'pointer' }} onClick={() => navigate(`/product/${p.id}`)}>{p.name}</span>
-                          <span className="name">â‚¬{(p.price * it.qty).toFixed(2)}</span>
+                          <span className="name">€{(p.price * it.qty).toFixed(2)}</span>
                         </div>
-                        <span className="meta">{c.label} Â· {it.size} Â· {p.sku}</span>
+                        <span className="meta">{c.label} · {it.size} · {p.sku}</span>
                         <div className="ctrls">
                           <div className="qty">
                             <button onClick={() => updateQty(it.id, it.qty - 1)} aria-label="decrease"><Icon name="minus" size={12} /></button>
@@ -1662,10 +1662,10 @@
 
               <div className="cart-summary">
                 <div className="t-caps muted" style={{ marginBottom: 20 }}>Resumo</div>
-                <div className="summary-row"><span className="lbl">Subtotal</span><span>â‚¬{cartSubtotal.toFixed(2)}</span></div>
-                <div className="summary-row"><span className="lbl">Envio</span><span>{shipping === 0 ? 'GrÃ¡tis' : `â‚¬${shipping.toFixed(2)}`}</span></div>
-                <div className="summary-row"><span className="lbl">IVA incluÃ­do (23%)</span><span>â‚¬{tax.toFixed(2)}</span></div>
-                <div className="summary-row total"><span>Total</span><span>â‚¬{total.toFixed(2)}</span></div>
+                <div className="summary-row"><span className="lbl">Subtotal</span><span>€{cartSubtotal.toFixed(2)}</span></div>
+                <div className="summary-row"><span className="lbl">Envio</span><span>{shipping === 0 ? 'Grátis' : `€${shipping.toFixed(2)}`}</span></div>
+                <div className="summary-row"><span className="lbl">IVA incluído (23%)</span><span>€{tax.toFixed(2)}</span></div>
+                <div className="summary-row total"><span>Total</span><span>€{total.toFixed(2)}</span></div>
 
                 {cartSubtotal < 120 && (
                   <div style={{
@@ -1673,7 +1673,7 @@
                     border: '1px solid var(--hairline)', borderRadius: 'var(--r)',
                     fontSize: 12, color: 'var(--on-surface-variant)'
                   }}>
-                    <div style={{ marginBottom: 8 }}>Faltam <strong style={{ color: '#fff' }}>â‚¬{(120 - cartSubtotal).toFixed(2)}</strong> para envio gratuito</div>
+                    <div style={{ marginBottom: 8 }}>Faltam <strong style={{ color: '#fff' }}>€{(120 - cartSubtotal).toFixed(2)}</strong> para envio gratuito</div>
                     <div style={{ height: 4, background: 'var(--hairline)', borderRadius: 2, overflow: 'hidden' }}>
                       <div style={{ height: '100%', width: `${Math.min(100, (cartSubtotal / 120) * 100)}%`, background: '#fff' }}></div>
                     </div>
@@ -1682,16 +1682,16 @@
 
                 <button className="btn btn-primary btn-lg btn-block" style={{ marginTop: 24 }}
                   onClick={() => navigate('/checkout')}>
-                  Checkout Â· â‚¬{total.toFixed(2)} <Icon name="arrow-r" size={14} />
+                  Checkout · €{total.toFixed(2)} <Icon name="arrow-r" size={14} />
                 </button>
                 <button className="btn btn-ghost btn-block" style={{ marginTop: 8 }} onClick={() => navigate('/shop')}>
                   Continuar a comprar
                 </button>
 
                 <div style={{ marginTop: 32, paddingTop: 24, borderTop: '1px solid var(--hairline)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <SmallNote icon="truck" t="Envio gratuito acima de â‚¬120" />
-                  <SmallNote icon="rotate" t="DevoluÃ§Ãµes gratuitas em 30 dias" />
-                  <SmallNote icon="shield" t="Garantia de 8 anos em peÃ§as construÃ­das" />
+                  <SmallNote icon="truck" t="Envio gratuito acima de €120" />
+                  <SmallNote icon="rotate" t="Devoluções gratuitas em 30 dias" />
+                  <SmallNote icon="shield" t="Garantia de 8 anos em peças construídas" />
                 </div>
               </div>
             </div>
@@ -1702,7 +1702,7 @@
 
     function SmallNote({ icon, t }) {
       return (
-        <div style={{ display: 'flex', alignPeÃ§as: 'center', gap: 10, fontSize: 12, color: 'var(--on-surface-variant)' }}>
+        <div style={{ display: 'flex', alignPeças: 'center', gap: 10, fontSize: 12, color: 'var(--on-surface-variant)' }}>
           <Icon name={icon} size={14} stroke={1.4} />
           <span>{t}</span>
         </div>
@@ -1776,14 +1776,14 @@
                 <div style={{
                   width: 56, height: 56, borderRadius: '50%',
                   border: '1px solid #fff', margin: '0 auto 24px',
-                  display: 'flex', alignPeÃ§as: 'center', justifyContent: 'center'
+                  display: 'flex', alignPeças: 'center', justifyContent: 'center'
                 }}>
                   <Icon name="check" size={24} stroke={1.5} />
                 </div>
                 <div className="t-caps muted" style={{ marginBottom: 16 }}>ENCOMENDA CONFIRMADA</div>
                 <h1 className="t-h1" style={{ margin: 0, marginBottom: 16 }}>Obrigado pela tua encomenda</h1>
                 <p className="t-body-sm" style={{ marginBottom: 32 }}>
-                  Recebemos a tua encomenda e enviÃ¡mos uma confirmaÃ§Ã£o para <strong style={{ color: '#fff' }}>{form.email || 'o teu e-mail'}</strong>.
+                  Recebemos a tua encomenda e enviámos uma confirmação para <strong style={{ color: '#fff' }}>{form.email || 'o teu e-mail'}</strong>.
                 </p>
                 <div style={{
                   borderTop: '1px solid var(--hairline)', borderBottom: '1px solid var(--hairline)',
@@ -1796,11 +1796,11 @@
                   </div>
                   <div>
                     <div className="t-caps muted" style={{ marginBottom: 8 }}>Total</div>
-                    <div className="t-mono" style={{ fontSize: 13 }}>â‚¬{total.toFixed(2)}</div>
+                    <div className="t-mono" style={{ fontSize: 13 }}>€{total.toFixed(2)}</div>
                   </div>
                 </div>
                 <button className="btn btn-primary btn-lg btn-block" onClick={() => navigate('/')}>
-                  Voltar Ã  pÃ¡gina inicial
+                  Voltar à página inicial
                 </button>
                 <button className="btn btn-ghost btn-block" style={{ marginTop: 8 }} onClick={() => navigate('/shop')}>
                   Continuar a comprar
@@ -1848,7 +1848,7 @@
 
                 {step === 1 && (
                   <div>
-                    <h3 className="t-h3" style={{ margin: 0, marginBottom: 24 }}>InformaÃ§Ã£o de contacto</h3>
+                    <h3 className="t-h3" style={{ margin: 0, marginBottom: 24 }}>Informação de contacto</h3>
                     <div className="form-grid">
                       <div className="full">
                         <label className="field-label">Email</label>
@@ -1866,21 +1866,21 @@
                       <div className="full">
                         <label className="field-label">Morada</label>
                         <input className="input" value={form.address} onChange={(e) => set('address', e.target.value)}
-                          placeholder="Rua, nÃºmero, andar" />
+                          placeholder="Rua, número, andar" />
                       </div>
                       <div>
                         <label className="field-label">Cidade</label>
                         <input className="input" value={form.city} onChange={(e) => set('city', e.target.value)} />
                       </div>
                       <div>
-                        <label className="field-label">CÃ³digo postal</label>
+                        <label className="field-label">Código postal</label>
                         <input className="input" value={form.postal} onChange={(e) => set('postal', e.target.value)} placeholder="0000-000" />
                       </div>
                       <div>
-                        <label className="field-label">PaÃ­s</label>
+                        <label className="field-label">País</label>
                         <select className="select" value={form.country} onChange={(e) => set('country', e.target.value)}>
-                          <option>Portugal</option><option>Espanha</option><option>FranÃ§a</option>
-                          <option>ItÃ¡lia</option><option>Alemanha</option><option>Reino Unido</option>
+                          <option>Portugal</option><option>Espanha</option><option>França</option>
+                          <option>Itália</option><option>Alemanha</option><option>Reino Unido</option>
                         </select>
                       </div>
                       <div>
@@ -1901,7 +1901,7 @@
 
                 {step === 2 && (
                   <div>
-                    <h3 className="t-h3" style={{ margin: 0, marginBottom: 24 }}>MÃ©todo de envio</h3>
+                    <h3 className="t-h3" style={{ margin: 0, marginBottom: 24 }}>Método de envio</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                       {SHIPPING.map(s => (
                         <label key={s.id} className={`shipping-option ${shipMethod === s.id ? 'active' : ''}`}>
@@ -1909,7 +1909,7 @@
                           <span className={`radio ${shipMethod === s.id ? 'active' : ''}`} style={{
                             width: 18, height: 18, borderRadius: '50%',
                             border: `1px solid ${shipMethod === s.id ? '#fff' : 'var(--hairline-strong)'}`,
-                            display: 'inline-flex', alignPeÃ§as: 'center', justifyContent: 'center',
+                            display: 'inline-flex', alignPeças: 'center', justifyContent: 'center',
                           }}>
                             {shipMethod === s.id && <span style={{ width: 8, height: 8, background: '#fff', borderRadius: '50%' }}></span>}
                           </span>
@@ -1918,7 +1918,7 @@
                             <div style={{ fontSize: 12, color: 'var(--muted)' }}>{s.sub}</div>
                           </div>
                           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>
-                            {s.price === 0 || (cartSubtotal >= 120 && s.id === 'standard') ? 'GrÃ¡tis' : `â‚¬${s.price.toFixed(2)}`}
+                            {s.price === 0 || (cartSubtotal >= 120 && s.id === 'standard') ? 'Grátis' : `€${s.price.toFixed(2)}`}
                           </div>
                         </label>
                       ))}
@@ -1926,7 +1926,7 @@
                     <div style={{ marginTop: 24 }}>
                       <label className="field-label">Notas (opcional)</label>
                       <textarea className="textarea" value={form.notes} onChange={(e) => set('notes', e.target.value)}
-                        placeholder="InstruÃ§Ãµes de entrega, presente, etc."></textarea>
+                        placeholder="Instruções de entrega, presente, etc."></textarea>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 32 }}>
                       <button className="btn btn-ghost" onClick={() => setStep(1)}>
@@ -1946,8 +1946,8 @@
                       <label className={`payment-method ${payMethod === 'card' ? 'active' : ''}`}>
                         <input type="radio" name="pay" hidden checked={payMethod === 'card'} onChange={() => setPayMethod('card')} />
                         <span className="radio"></span>
-                        <span style={{ fontSize: 14, fontWeight: 500, flex: 1 }}>CartÃ£o de crÃ©dito / dÃ©bito</span>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>VISA Â· MC Â· AMEX</span>
+                        <span style={{ fontSize: 14, fontWeight: 500, flex: 1 }}>Cartão de crédito / débito</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>VISA · MC · AMEX</span>
                       </label>
                       <label className={`payment-method ${payMethod === 'paypal' ? 'active' : ''}`}>
                         <input type="radio" name="pay" hidden checked={payMethod === 'paypal'} onChange={() => setPayMethod('paypal')} />
@@ -1964,12 +1964,12 @@
                     {payMethod === 'card' && (
                       <div className="form-grid">
                         <div className="full">
-                          <label className="field-label">NÃºmero do cartÃ£o</label>
+                          <label className="field-label">Número do cartão</label>
                           <input className="input" value={form.cardNumber} onChange={(e) => set('cardNumber', e.target.value)}
                             placeholder="0000 0000 0000 0000" maxLength={19} />
                         </div>
                         <div className="full">
-                          <label className="field-label">Nome no cartÃ£o</label>
+                          <label className="field-label">Nome no cartão</label>
                           <input className="input" value={form.cardName} onChange={(e) => set('cardName', e.target.value)} />
                         </div>
                         <div>
@@ -1983,9 +1983,9 @@
                       </div>
                     )}
 
-                    <div style={{ display: 'flex', alignPeÃ§as: 'center', gap: 8, marginTop: 20, fontSize: 12, color: 'var(--muted)' }}>
+                    <div style={{ display: 'flex', alignPeças: 'center', gap: 8, marginTop: 20, fontSize: 12, color: 'var(--muted)' }}>
                       <Icon name="shield" size={14} stroke={1.4} />
-                      <span>Pagamento encriptado Â· Os dados nÃ£o sÃ£o guardados.</span>
+                      <span>Pagamento encriptado · Os dados não são guardados.</span>
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 32 }}>
@@ -1993,7 +1993,7 @@
                         <Icon name="arrow-l" size={14} /> Voltar
                       </button>
                       <button className="btn btn-primary btn-lg" disabled={!validStep3} onClick={placeOrder}>
-                        Confirmar encomenda Â· â‚¬{total.toFixed(2)}
+                        Confirmar encomenda · €{total.toFixed(2)}
                       </button>
                     </div>
                   </div>
@@ -2002,7 +2002,7 @@
 
               {/* SUMMARY */}
               <div className="checkout-side">
-                <div className="t-caps muted" style={{ marginBottom: 20 }}>Encomenda Â· {cart.reduce((s, it) => s + it.qty, 0)} artigos</div>
+                <div className="t-caps muted" style={{ marginBottom: 20 }}>Encomenda · {cart.reduce((s, it) => s + it.qty, 0)} artigos</div>
                 <div>
                   {cart.map(it => {
                     const p = PRODUCTS.find(pp => pp.id === it.productId);
@@ -2016,18 +2016,18 @@
                         </div>
                         <div>
                           <div style={{ fontSize: 13, fontWeight: 500 }}>{p.name}</div>
-                          <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{c.label} Â· {it.size}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{c.label} · {it.size}</div>
                         </div>
-                        <div style={{ fontSize: 13 }}>â‚¬{(p.price * it.qty).toFixed(2)}</div>
+                        <div style={{ fontSize: 13 }}>€{(p.price * it.qty).toFixed(2)}</div>
                       </div>
                     );
                   })}
                 </div>
                 <div style={{ marginTop: 24 }}>
-                  <div className="summary-row"><span className="lbl">Subtotal</span><span>â‚¬{cartSubtotal.toFixed(2)}</span></div>
-                  <div className="summary-row"><span className="lbl">Envio ({shipObj.label})</span><span>{shipping === 0 ? 'GrÃ¡tis' : `â‚¬${shipping.toFixed(2)}`}</span></div>
-                  <div className="summary-row"><span className="lbl">IVA incluÃ­do (23%)</span><span>â‚¬{tax.toFixed(2)}</span></div>
-                  <div className="summary-row total"><span>Total</span><span>â‚¬{total.toFixed(2)}</span></div>
+                  <div className="summary-row"><span className="lbl">Subtotal</span><span>€{cartSubtotal.toFixed(2)}</span></div>
+                  <div className="summary-row"><span className="lbl">Envio ({shipObj.label})</span><span>{shipping === 0 ? 'Grátis' : `€${shipping.toFixed(2)}`}</span></div>
+                  <div className="summary-row"><span className="lbl">IVA incluído (23%)</span><span>€{tax.toFixed(2)}</span></div>
+                  <div className="summary-row total"><span>Total</span><span>€{total.toFixed(2)}</span></div>
                 </div>
               </div>
             </div>
@@ -2072,7 +2072,7 @@
                 {tab === 'login' ? (
                   <React.Fragment>
                     <h2 className="t-h2" style={{ margin: 0, marginBottom: 8 }}>Bem-vindo de volta</h2>
-                    <p className="t-body-sm" style={{ marginBottom: 24 }}>Acede Ã s tuas encomendas e lista de desejos.</p>
+                    <p className="t-body-sm" style={{ marginBottom: 24 }}>Acede às tuas encomendas e lista de desejos.</p>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                       <div>
                         <label className="field-label">Email</label>
@@ -2080,9 +2080,9 @@
                       </div>
                       <div>
                         <label className="field-label">Palavra-passe</label>
-                        <input className="input" type="password" value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" />
+                        <input className="input" type="password" value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="••••••••" />
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'center' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignPeças: 'center' }}>
                         <label className="check">
                           <input type="checkbox" />
                           <span className="box"></span>
@@ -2095,7 +2095,7 @@
                           try {
                             await SupabaseAPI.signIn(form.email, form.password);
                             navigate('/account');
-                          } catch (e) { showToast('Credenciais invÃ¡lidas'); }
+                          } catch (e) { showToast(e.message || 'Credenciais inválidas'); }
                         } else { setAuthed(true); }
                       }}>
                         Entrar
@@ -2108,7 +2108,7 @@
                 ) : (
                   <React.Fragment>
                     <h2 className="t-h2" style={{ margin: 0, marginBottom: 8 }}>Cria a tua conta</h2>
-                    <p className="t-body-sm" style={{ marginBottom: 24 }}>Encomendas mais rÃ¡pidas e acesso a ediÃ§Ãµes limitadas.</p>
+                    <p className="t-body-sm" style={{ marginBottom: 24 }}>Encomendas mais rápidas e acesso a edições limitadas.</p>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                       <div className="form-grid">
                         <div>
@@ -2131,7 +2131,7 @@
                       <label className="check">
                         <input type="checkbox" />
                         <span className="box"></span>
-                        <span>Quero receber novidades sobre lanÃ§amentos</span>
+                        <span>Quero receber novidades sobre lançamentos</span>
                       </label>
                       <button className="btn btn-primary btn-lg btn-block" onClick={async () => {
                         if (window.__SUPABASE_CONFIGURED__) {
@@ -2139,7 +2139,7 @@
                             await SupabaseAPI.signUp(form.email, form.password, form.firstName, form.lastName);
                             showToast('Confirma o e-mail para activar a conta');
                             navigate('/account');
-                          } catch (e) { showToast('Erro ao criar conta'); }
+                          } catch (e) { showToast(e.message || 'Erro ao criar conta'); }
                         } else { setAuthed(true); }
                       }}>
                         Criar conta
@@ -2165,9 +2165,9 @@
                 <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
                 <span style={{ color: '#fff' }}>ACCOUNT</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'baseline', flexWrap: 'wrap', gap: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignPeças: 'baseline', flexWrap: 'wrap', gap: 16 }}>
                 <div>
-                  <h1 className="t-h1" style={{ margin: 0 }}>OlÃ¡, {sbProfile?.first_name || sbUser?.email?.split('@')[0] || 'Cliente'}</h1>
+                  <h1 className="t-h1" style={{ margin: 0 }}>Olá, {sbProfile?.first_name || sbUser?.email?.split('@')[0] || 'Cliente'}</h1>
                   <div className="t-mono" style={{ color: 'var(--muted)', marginTop: 8 }}>
                     CLIENTE #KR-2026-{Math.floor(Math.random() * 9000 + 1000)}
                   </div>
@@ -2175,7 +2175,7 @@
                 <button className="btn btn-secondary" onClick={async () => {
                   if (window.__SUPABASE_CONFIGURED__) await SupabaseAPI.signOut();
                   setAuthed(false);
-                }}>Terminar sessÃ£o</button>
+                }}>Terminar sessão</button>
               </div>
             </div>
           </div>
@@ -2200,7 +2200,7 @@
                     {wishlistProducts.length === 0 ? (
                       <div className="empty" style={{ padding: '60px 0' }}>
                         <Icon name="heart" size={28} stroke={1.2} />
-                        <div className="t-h3">A tua lista de desejos estÃ¡ vazia</div>
+                        <div className="t-h3">A tua lista de desejos está vazia</div>
                         <button className="btn btn-secondary" onClick={() => navigate('/shop')}>Explorar loja</button>
                       </div>
                     ) : (
@@ -2249,7 +2249,7 @@
             {orders.map((o, i) => (
               <div key={o.id} style={{
                 display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: 16,
-                padding: 20, alignPeÃ§as: 'center',
+                padding: 20, alignPeças: 'center',
                 borderBottom: i < orders.length - 1 ? '1px solid var(--hairline)' : 0
               }}>
                 <div>
@@ -2266,9 +2266,9 @@
                 </div>
                 <div>
                   <div className="t-caps muted" style={{ marginBottom: 4 }}>TOTAL</div>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>â‚¬{o.total.toFixed(2)}</div>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>€{o.total.toFixed(2)}</div>
                 </div>
-                <div style={{ display: 'flex', gap: 8, alignPeÃ§as: 'center' }}>
+                <div style={{ display: 'flex', gap: 8, alignPeças: 'center' }}>
                   <span className="tag" style={{ borderColor: '#fff', color: '#fff' }}>{o.status}</span>
                   <button className="btn btn-secondary btn-sm">Detalhes</button>
                 </div>
@@ -2282,7 +2282,7 @@
     function AddressesSection() {
       return (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'center', marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignPeças: 'center', marginBottom: 24 }}>
             <h2 className="t-h2" style={{ margin: 0 }}>Moradas</h2>
             <button className="btn btn-secondary btn-sm"><Icon name="plus" size={12} /> Nova</button>
           </div>
@@ -2294,7 +2294,7 @@
               </div>
               <div style={{ fontSize: 14, lineHeight: 1.6 }}>
                 <strong>Morada de envio</strong><br />
-                Rua das Flores 42, 2Âº Esq<br />
+                Rua das Flores 42, 2º Esq<br />
                 1100-180 Lisboa<br />
                 Portugal<br />
                 <span style={{ color: 'var(--muted)' }}>+351 912 345 678</span>
@@ -2306,10 +2306,10 @@
             </div>
             <div style={{ border: '1px solid var(--hairline)', borderRadius: 'var(--r)', padding: 24 }}>
               <div style={{ marginBottom: 16 }}>
-                <span className="tag">FATURAÃ‡ÃƒO</span>
+                <span className="tag">FATURAÇÃO</span>
               </div>
               <div style={{ fontSize: 14, lineHeight: 1.6 }}>
-                Igual Ã  morada principal
+                Igual à morada principal
               </div>
             </div>
           </div>
@@ -2339,12 +2339,12 @@
             </div>
             <div className="full">
               <label className="field-label">Palavra-passe</label>
-              <input className="input" type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" />
+              <input className="input" type="password" placeholder="••••••••" />
             </div>
           </div>
           <button className="btn btn-primary" style={{ marginTop: 24 }} onClick={async () => {
             if (!window.__SUPABASE_CONFIGURED__ || !sbUser) {
-              showToast('Sem ligaÃ§Ã£o Supabase ou sessÃ£o invÃ¡lida');
+              showToast('Sem ligação Supabase ou sessão inválida');
               return;
             }
             try {
@@ -2357,7 +2357,7 @@
               showToast('Erro ao guardar perfil');
             }
           }}>
-            Guardar alteraÃ§Ãµes
+            Guardar alterações
           </button>
         </div>
       );
@@ -2368,10 +2368,10 @@
         <div>
           <h2 className="t-h2" style={{ margin: 0, marginBottom: 24 }}>Newsletter</h2>
           <div style={{ maxWidth: 560, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <label className="check"><input type="checkbox" defaultChecked /><span className="box"></span><span>Novidades & lanÃ§amentos</span></label>
-            <label className="check"><input type="checkbox" /><span className="box"></span><span>EdiÃ§Ãµes limitadas (acesso prioritÃ¡rio)</span></label>
+            <label className="check"><input type="checkbox" defaultChecked /><span className="box"></span><span>Novidades & lançamentos</span></label>
+            <label className="check"><input type="checkbox" /><span className="box"></span><span>Edições limitadas (acesso prioritário)</span></label>
             <label className="check"><input type="checkbox" /><span className="box"></span><span>Eventos & ateliers</span></label>
-            <button className="btn btn-primary" style={{ marginTop: 8, alignSelf: 'flex-start' }}>Atualizar preferÃªncias</button>
+            <button className="btn btn-primary" style={{ marginTop: 8, alignSelf: 'flex-start' }}>Atualizar preferências</button>
           </div>
         </div>
       );
@@ -2402,14 +2402,14 @@
                 <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
                 <span style={{ color: '#fff' }}>CONTACT</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'baseline', flexWrap: 'wrap', gap: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignPeças: 'baseline', flexWrap: 'wrap', gap: 16 }}>
                 <div>
                   <h1 className="t-h1" style={{ margin: 0 }}>Contacto</h1>
                   <p className="t-body-sm" style={{ marginTop: 12, maxWidth: 520 }}>
-                    Resposta em 24h em dias Ãºteis. Para questÃµes sobre encomendas, inclui a referÃªncia (KR-XXXXXX).
+                    Resposta em 24h em dias úteis. Para questões sobre encomendas, inclui a referência (KR-XXXXXX).
                   </p>
                 </div>
-                <span className="t-mono" style={{ color: 'var(--muted)' }}>TEMPO DE RESPOSTA Â· ~14H</span>
+                <span className="t-mono" style={{ color: 'var(--muted)' }}>TEMPO DE RESPOSTA · ~14H</span>
               </div>
             </div>
           </div>
@@ -2423,12 +2423,12 @@
               <div style={{ padding: '40px 0', paddingRight: 'var(--pad-page)', borderRight: '1px solid var(--hairline)' }} className="contact-form">
                 {sent ? (
                   <div className="empty" style={{ padding: '80px 0' }}>
-                    <div style={{ width: 56, height: 56, border: '1px solid #fff', borderRadius: '50%', display: 'flex', alignPeÃ§as: 'center', justifyContent: 'center' }}>
+                    <div style={{ width: 56, height: 56, border: '1px solid #fff', borderRadius: '50%', display: 'flex', alignPeças: 'center', justifyContent: 'center' }}>
                       <Icon name="check" size={24} />
                     </div>
                     <h2 className="t-h2" style={{ margin: 0 }}>Recebemos a tua mensagem</h2>
                     <p className="t-body-sm" style={{ maxWidth: 360, textAlign: 'center' }}>
-                      Vamos responder para <strong style={{ color: '#fff' }}>{form.email}</strong> nas prÃ³ximas 24h.
+                      Vamos responder para <strong style={{ color: '#fff' }}>{form.email}</strong> nas próximas 24h.
                     </p>
                     <button className="btn btn-secondary" onClick={() => { setSent(false); setForm({ name: '', email: '', topic: 'order', message: '' }); }}>
                       Enviar outra mensagem
@@ -2450,7 +2450,7 @@
                         <label className="field-label">Assunto</label>
                         <select className="select" value={form.topic} onChange={(e) => set('topic', e.target.value)}>
                           <option value="order">Encomenda</option>
-                          <option value="returns">DevoluÃ§Ã£o / troca</option>
+                          <option value="returns">Devolução / troca</option>
                           <option value="product">Produto / disponibilidade</option>
                           <option value="press">Imprensa</option>
                           <option value="wholesale">Grossista</option>
@@ -2460,12 +2460,12 @@
                       <div className="full">
                         <label className="field-label">Mensagem</label>
                         <textarea className="textarea" value={form.message} onChange={(e) => set('message', e.target.value)}
-                          placeholder="Escreve aqui a tua questÃ£o..." required></textarea>
+                          placeholder="Escreve aqui a tua questão..." required></textarea>
                       </div>
                     </div>
-                    <div style={{ marginTop: 24, display: 'flex', alignPeÃ§as: 'center', gap: 16, flexWrap: 'wrap' }}>
+                    <div style={{ marginTop: 24, display: 'flex', alignPeças: 'center', gap: 16, flexWrap: 'wrap' }}>
                       <button className="btn btn-primary btn-lg">Enviar mensagem</button>
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Resposta em 24h em dias Ãºteis.</span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Resposta em 24h em dias úteis.</span>
                     </div>
                   </form>
                 )}
@@ -2475,16 +2475,16 @@
               <div style={{ padding: '40px 0 40px var(--pad-page)' }} className="contact-info">
                 <ContactBlock icon="mail" lbl="E-MAIL"
                   v="hello@kara.studio"
-                  s="Suporte geral, encomendas, devoluÃ§Ãµes." />
+                  s="Suporte geral, encomendas, devoluções." />
                 <ContactBlock icon="phone" lbl="TELEFONE"
                   v="+351 21 000 0000"
-                  s="Segâ€“Sex Â· 10:00â€“18:00 (WET)" />
+                  s="Seg–Sex · 10:00–18:00 (WET)" />
                 <ContactBlock icon="pin" lbl="ATELIER"
                   v="Rua da Boavista 42, Lisboa"
-                  s="Visitas apenas com marcaÃ§Ã£o prÃ©via." />
+                  s="Visitas apenas com marcação prévia." />
                 <ContactBlock icon="instagram" lbl="SOCIAL"
                   v="@kara.studio"
-                  s="AtualizaÃ§Ãµes de produÃ§Ã£o e lanÃ§amentos." />
+                  s="Atualizações de produção e lançamentos." />
               </div>
             </div>
 
@@ -2496,7 +2496,7 @@
           }
         `}</style>
 
-            {/* FAQ â€” quick-help */}
+            {/* FAQ — quick-help */}
             <section className="section-tight">
               <div className="sec-head">
                 <div className="left">
@@ -2505,10 +2505,10 @@
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 1, background: 'var(--hairline)', border: '1px solid var(--hairline)', borderRadius: 'var(--r)', overflow: 'hidden' }} className="faq-grid">
-                <FaqRow q="Quanto tempo demora a entrega?" a="3â€“5 dias Ãºteis com envio standard, 1â€“2 dias com express." />
-                <FaqRow q="Posso devolver uma peÃ§a?" a="Sim, em 30 dias apÃ³s receÃ§Ã£o. As devoluÃ§Ãµes sÃ£o gratuitas em Portugal." />
-                <FaqRow q="Os tamanhos correspondem ao padrÃ£o EU?" a="Sim, mas as nossas peÃ§as tÃªm cortes mais relaxados â€” consulta a tabela em cada produto." />
-                <FaqRow q="Como funciona a garantia de 8 anos?" a="Cobre defeitos de fabrico e construÃ§Ã£o. ReparaÃ§Ãµes nos nossos ateliers." />
+                <FaqRow q="Quanto tempo demora a entrega?" a="3–5 dias úteis com envio standard, 1–2 dias com express." />
+                <FaqRow q="Posso devolver uma peça?" a="Sim, em 30 dias após receção. As devoluções são gratuitas em Portugal." />
+                <FaqRow q="Os tamanhos correspondem ao padrão EU?" a="Sim, mas as nossas peças têm cortes mais relaxados — consulta a tabela em cada produto." />
+                <FaqRow q="Como funciona a garantia de 8 anos?" a="Cobre defeitos de fabrico e construção. Reparações nos nossos ateliers." />
               </div>
               <style>{`@media (max-width: 720px) { .faq-grid { grid-template-columns: 1fr !important; } }`}</style>
             </section>
@@ -2535,7 +2535,7 @@
       return (
         <div style={{ background: 'var(--background)' }}>
           <button onClick={() => setOpen(!open)} style={{
-            width: '100%', display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'center',
+            width: '100%', display: 'flex', justifyContent: 'space-between', alignPeças: 'center',
             background: 'transparent', border: 0, padding: '20px 24px',
             color: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer', textAlign: 'left'
           }}>

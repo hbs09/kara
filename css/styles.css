@@ -1,10 +1,10 @@
-﻿/* ============================================================
-   KARA â€” design tokens + base
+/* ============================================================
+   KARA — design tokens + base
    Monochromatic, hairlines, no shadows, Inter + JetBrains Mono
    ============================================================ */
 
 :root {
-  /* Colors â€” straight from design.md */
+  /* Colors — straight from design.md */
   --surface: #131313;
   --surface-dim: #131313;
   --surface-bright: #393939;
@@ -26,7 +26,7 @@
   /* page goes a touch deeper than container for breathing */
   --on-background: #e2e2e2;
 
-  /* Hairline + dim text â€” design.md narrative */
+  /* Hairline + dim text — design.md narrative */
   --hairline: #2a2a2a;
   --hairline-strong: #444748;
   --muted: #888888;
@@ -221,7 +221,7 @@ select {
   width: 100%;
 }
 
-/* Section header â€” caps label + hr */
+/* Section header — caps label + hr */
 .sec-head {
   display: flex;
   align-items: baseline;
@@ -991,7 +991,7 @@ select {
 }
 
 /* ============================================================
-   PLP â€” filters + grid
+   PLP — filters + grid
    ============================================================ */
 
 .plp-head {
@@ -1856,7 +1856,7 @@ select {
   transform: translateX(-50%) translateY(0);
 }
 
-/* Page header â€” generic */
+/* Page header — generic */
 .page-head {
   border-bottom: 1px solid var(--hairline);
   padding: 64px 0 48px;
