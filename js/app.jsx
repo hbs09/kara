@@ -16,13 +16,20 @@
             .select('*')
             .order('sort_order');
           if (error) throw error;
-          return data.map(p => ({
+          return data.map(p => {
+            const gSlug = p.gender_slug || '';
+            const rawCat = p.category_slug || '';
+            const category = gSlug && rawCat.startsWith(gSlug + '-')
+              ? rawCat.slice(gSlug.length + 1)
+              : rawCat;
+            return {
             id: p.id,
             sku: p.sku,
             name: p.name,
             slug: p.slug,
             price: Number(p.price),
-            category: p.category_slug,
+            gender: p.gender_slug,
+            category,
             type: p.type,
             colors: (p.colors || []).map(c => ({ id: c.slug, label: c.label, hex: c.hex })),
             sizes: (p.sizes || []),
@@ -35,7 +42,7 @@
             tags: (p.tags || []),
             avgRating: p.avg_rating,
             reviewCount: p.review_count,
-          }));
+          }; });
         } catch (e) {
           console.warn('Supabase: erro ao carregar produtos', e.message);
           return null;
@@ -152,7 +159,8 @@
         sku: 'KR-TEE-001-BLK',
         name: 'Heavyweight Tee 001',
         price: 65,
-        category: 'tops',
+        gender: 'homem',
+        category: 't-shirts',
         type: 'T-Shirt',
         colors: [
           { id: 'black', label: 'Preto', hex: '#0a0a0a' },
@@ -178,7 +186,8 @@
         sku: 'KR-CRW-002-CRM',
         name: 'Loopback Crewneck',
         price: 145,
-        category: 'tops',
+        gender: 'homem',
+        category: 'sweatshirts',
         type: 'Sweatshirt',
         colors: [
           { id: 'cream', label: 'Creme', hex: '#e8e2d6' },
@@ -203,7 +212,8 @@
         sku: 'KR-PNT-003-BLK',
         name: 'Wide Leg Trouser',
         price: 195,
-        category: 'bottoms',
+        gender: 'homem',
+        category: 'calcas',
         type: 'Calças',
         colors: [
           { id: 'black', label: 'Preto', hex: '#0a0a0a' },
@@ -227,7 +237,8 @@
         sku: 'KR-OUT-004-BLK',
         name: 'Type-04 Field Coat',
         price: 425,
-        category: 'outerwear',
+        gender: 'homem',
+        category: 'casacos',
         type: 'Casaco',
         colors: [
           { id: 'black', label: 'Preto', hex: '#0a0a0a' },
@@ -251,7 +262,8 @@
         sku: 'KR-KNT-005-OLV',
         name: 'Merino Half-Zip',
         price: 215,
-        category: 'tops',
+        gender: 'homem',
+        category: 'sweatshirts',
         type: 'Malha',
         colors: [
           { id: 'olive', label: 'Olive', hex: '#4a4a3a' },
@@ -275,7 +287,8 @@
         sku: 'KR-PNT-006-CRM',
         name: 'Carpenter Pant',
         price: 175,
-        category: 'bottoms',
+        gender: 'homem',
+        category: 'calcas',
         type: 'Calças',
         colors: [
           { id: 'cream', label: 'Creme', hex: '#e8e2d6' },
@@ -298,7 +311,8 @@
         sku: 'KR-ACC-007-BLK',
         name: 'Object Cap',
         price: 55,
-        category: 'accessories',
+        gender: 'homem',
+        category: 'acessorios',
         type: 'Boné',
         colors: [
           { id: 'black', label: 'Preto', hex: '#0a0a0a' },
@@ -321,7 +335,8 @@
         sku: 'KR-OUT-008-BLK',
         name: 'Cropped Liner Vest',
         price: 165,
-        category: 'outerwear',
+        gender: 'homem',
+        category: 'casacos',
         type: 'Colete',
         colors: [
           { id: 'black', label: 'Preto', hex: '#0a0a0a' },
@@ -344,7 +359,8 @@
         sku: 'KR-TEE-009-CRM',
         name: 'Tubular Long Sleeve',
         price: 85,
-        category: 'tops',
+        gender: 'homem',
+        category: 't-shirts',
         type: 'T-Shirt',
         colors: [
           { id: 'cream', label: 'Creme', hex: '#e8e2d6' },
@@ -367,7 +383,8 @@
         sku: 'KR-ACC-010-BLK',
         name: 'Utility Tote',
         price: 95,
-        category: 'accessories',
+        gender: 'homem',
+        category: 'acessorios',
         type: 'Mala',
         colors: [
           { id: 'black', label: 'Preto', hex: '#0a0a0a' },
@@ -390,7 +407,8 @@
         sku: 'KR-KNT-011-BLK',
         name: 'Cashmere Beanie',
         price: 85,
-        category: 'accessories',
+        gender: 'homem',
+        category: 'acessorios',
         type: 'Gorro',
         colors: [
           { id: 'black', label: 'Preto', hex: '#0a0a0a' },
@@ -414,7 +432,8 @@
         sku: 'KR-PNT-012-BLK',
         name: 'Selvedge Denim',
         price: 245,
-        category: 'bottoms',
+        gender: 'homem',
+        category: 'calcas',
         type: 'Ganga',
         colors: [
           { id: 'black', label: 'Preto', hex: '#0a0a0a' },
@@ -432,14 +451,130 @@
         ],
         tags: ['Mais Vendido'],
       },
+      // ── Mulher
+      {
+        id: 'k-m01', sku: 'KR-TEE-M01-BLK', name: 'Essential Tee W01', price: 58,
+        gender: 'mulher', category: 't-shirts', type: 'T-Shirt',
+        colors: [{ id: 'black', label: 'Preto', hex: '#0a0a0a' }, { id: 'cream', label: 'Creme', hex: '#e8e2d6' }, { id: 'navy', label: 'Azul-Marinho', hex: '#1c2233' }],
+        sizes: ['XS', 'S', 'M', 'L', 'XL'], available: ['XS', 'S', 'M', 'L', 'XL'],
+        materials: ['100% Algodão Pima'], weight: '200 GSM', origin: 'Peru',
+        description: 'T-shirt em algodão pima de peso médio. Corte semi-cintado com gola canelada fina. Pré-lavada para textura suave.',
+        images: ['https://images.unsplash.com/photo-1562572159-4eaee4c76a72?w=900&q=80&auto=format&fit=crop', 'https://images.unsplash.com/photo-1434389677669-e08b4cac3105?w=900&q=80&auto=format&fit=crop'],
+        tags: ['Novo'],
+      },
+      {
+        id: 'k-m02', sku: 'KR-TEE-M02-CRM', name: 'Ribbed Crop Tee W02', price: 65,
+        gender: 'mulher', category: 't-shirts', type: 'T-Shirt',
+        colors: [{ id: 'cream', label: 'Creme', hex: '#e8e2d6' }, { id: 'black', label: 'Preto', hex: '#0a0a0a' }, { id: 'taupe', label: 'Taupe', hex: '#7a6e5e' }],
+        sizes: ['XS', 'S', 'M', 'L'], available: ['XS', 'S', 'M', 'L'],
+        materials: ['95% Algodão', '5% Elastano'], weight: '180 GSM', origin: 'Portugal',
+        description: 'Top canelado curto em jersey de algodão elástico. Gola redonda e manga de três quartos.',
+        images: ['https://images.unsplash.com/photo-1525507119028-ed4c629a60a3?w=900&q=80&auto=format&fit=crop', 'https://images.unsplash.com/photo-1503342394128-c104d54dba01?w=900&q=80&auto=format&fit=crop'],
+        tags: [],
+      },
+      {
+        id: 'k-m03', sku: 'KR-CRW-M03-CRM', name: 'Oversized Crewneck W03', price: 138,
+        gender: 'mulher', category: 'sweatshirts', type: 'Sweatshirt',
+        colors: [{ id: 'cream', label: 'Creme', hex: '#e8e2d6' }, { id: 'graphite', label: 'Grafite', hex: '#3a3a3a' }, { id: 'olive', label: 'Olive', hex: '#4a4a3a' }],
+        sizes: ['XS', 'S', 'M', 'L', 'XL'], available: ['XS', 'S', 'M', 'L', 'XL'],
+        materials: ['85% Algodão', '15% Poliéster'], weight: '460 GSM', origin: 'Portugal',
+        description: 'Sweatshirt oversized em french terry loopback. Ombros caídos, punhos e barra largo canelado. Tingida em peça.',
+        images: ['https://images.unsplash.com/photo-1516575334481-f85287c2c82d?w=900&q=80&auto=format&fit=crop', 'https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?w=900&q=80&auto=format&fit=crop'],
+        tags: ['Mais Vendido'],
+      },
+      {
+        id: 'k-m04', sku: 'KR-KNT-M04-OLV', name: 'Fine Knit Cardigan W04', price: 195,
+        gender: 'mulher', category: 'sweatshirts', type: 'Malha',
+        colors: [{ id: 'cream', label: 'Creme', hex: '#e8e2d6' }, { id: 'olive', label: 'Olive', hex: '#4a4a3a' }, { id: 'black', label: 'Preto', hex: '#0a0a0a' }],
+        sizes: ['XS', 'S', 'M', 'L'], available: ['XS', 'S', 'M', 'L'],
+        materials: ['100% Lã Merino'], weight: '10 GG', origin: 'Escócia',
+        description: 'Casaco de malha fina em lã merino. Fecho de botões forrados, bolsos de chapa e gola em V.',
+        images: ['https://images.unsplash.com/photo-1604176354204-9268737828e4?w=900&q=80&auto=format&fit=crop', 'https://images.unsplash.com/photo-1614093302611-8efc4de12407?w=900&q=80&auto=format&fit=crop'],
+        tags: [],
+      },
+      {
+        id: 'k-m05', sku: 'KR-PNT-M05-CRM', name: 'Wide Leg Linen W05', price: 145,
+        gender: 'mulher', category: 'calcas', type: 'Calças',
+        colors: [{ id: 'cream', label: 'Creme', hex: '#e8e2d6' }, { id: 'taupe', label: 'Taupe', hex: '#7a6e5e' }, { id: 'black', label: 'Preto', hex: '#0a0a0a' }],
+        sizes: ['XS', 'S', 'M', 'L', 'XL'], available: ['XS', 'S', 'M', 'L', 'XL'],
+        materials: ['100% Linho'], weight: '160 GSM', origin: 'Portugal',
+        description: 'Calça de linho de perna larga com elástico na cintura. Acabamento a pique, caimento fluido.',
+        images: ['https://images.unsplash.com/photo-1594938298603-c8148c4b7e6d?w=900&q=80&auto=format&fit=crop', 'https://images.unsplash.com/photo-1509631179647-0177331693ae?w=900&q=80&auto=format&fit=crop'],
+        tags: ['Novo'],
+      },
+      {
+        id: 'k-m06', sku: 'KR-PNT-M06-BLK', name: 'High Rise Straight W06', price: 175,
+        gender: 'mulher', category: 'calcas', type: 'Calças',
+        colors: [{ id: 'black', label: 'Preto', hex: '#0a0a0a' }, { id: 'indigo', label: 'Índigo', hex: '#1c2840' }, { id: 'taupe', label: 'Taupe', hex: '#7a6e5e' }],
+        sizes: ['28', '30', '32', '34'], available: ['28', '30', '32', '34'],
+        materials: ['98% Algodão', '2% Elastano'], weight: '320 GSM', origin: 'Portugal',
+        description: 'Calça de cintura alta em twill de algodão. Perna direita, bolsos de faca, acabamento limpo.',
+        images: ['https://images.unsplash.com/photo-1473966968600-fa801b3a9746?w=900&q=80&auto=format&fit=crop', 'https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?w=900&q=80&auto=format&fit=crop'],
+        tags: [],
+      },
+      {
+        id: 'k-m07', sku: 'KR-OUT-M07-BLK', name: 'Wool Overcoat W07', price: 485,
+        gender: 'mulher', category: 'casacos', type: 'Casaco',
+        colors: [{ id: 'black', label: 'Preto', hex: '#0a0a0a' }, { id: 'graphite', label: 'Grafite', hex: '#3a3a3a' }, { id: 'cream', label: 'Creme', hex: '#e8e2d6' }],
+        sizes: ['XS', 'S', 'M', 'L'], available: ['XS', 'S', 'M', 'L'],
+        materials: ['70% Lã', '20% Poliamida', '10% Caxemira'], weight: '600 GSM', origin: 'Itália',
+        description: 'Casaco comprido em mistura de lã italiana. Lapela entalhada, botões forrados e forro de viscose.',
+        images: ['https://images.unsplash.com/photo-1548624313-0396c75e4b1a?w=900&q=80&auto=format&fit=crop', 'https://images.unsplash.com/photo-1544022613-e87ca75a784a?w=900&q=80&auto=format&fit=crop'],
+        tags: ['Edição Limitada'],
+      },
+      {
+        id: 'k-m08', sku: 'KR-OUT-M08-NAV', name: 'Quilted Liner W08', price: 155,
+        gender: 'mulher', category: 'casacos', type: 'Colete',
+        colors: [{ id: 'navy', label: 'Azul-Marinho', hex: '#1c2233' }, { id: 'black', label: 'Preto', hex: '#0a0a0a' }, { id: 'olive', label: 'Olive', hex: '#4a4a3a' }],
+        sizes: ['XS', 'S', 'M', 'L'], available: ['XS', 'S', 'M', 'L'],
+        materials: ['100% Nylon Reciclado'], weight: '—', origin: 'Japão',
+        description: 'Colete acolchoado crop em nylon ripstop. Enchimento em fibra reciclada. Fecho duplo YKK.',
+        images: ['https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=900&q=80&auto=format&fit=crop', 'https://images.unsplash.com/photo-1591047139756-eb1ab9c8f99e?w=900&q=80&auto=format&fit=crop'],
+        tags: ['Novo'],
+      },
+      {
+        id: 'k-m09', sku: 'KR-ACC-M09-BLK', name: 'Mini Structured Bag W09', price: 225,
+        gender: 'mulher', category: 'acessorios', type: 'Mala',
+        colors: [{ id: 'black', label: 'Preto', hex: '#0a0a0a' }, { id: 'taupe', label: 'Taupe', hex: '#7a6e5e' }],
+        sizes: ['One Size'], available: ['One Size'],
+        materials: ['100% Pele Bovina'], weight: '—', origin: 'Portugal',
+        description: 'Mini saco em pele bovina curtida ao vegetal. Fecho de fecho, alça removível em corrente.',
+        images: ['https://images.unsplash.com/photo-1584917865442-de89df76afd3?w=900&q=80&auto=format&fit=crop', 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=900&q=80&auto=format&fit=crop'],
+        tags: [],
+      },
+      {
+        id: 'k-m10', sku: 'KR-ACC-M10-CRM', name: 'Cashmere Beanie W10', price: 85,
+        gender: 'mulher', category: 'acessorios', type: 'Gorro',
+        colors: [{ id: 'cream', label: 'Creme', hex: '#e8e2d6' }, { id: 'black', label: 'Preto', hex: '#0a0a0a' }, { id: 'graphite', label: 'Grafite', hex: '#3a3a3a' }, { id: 'taupe', label: 'Taupe', hex: '#7a6e5e' }],
+        sizes: ['One Size'], available: ['One Size'],
+        materials: ['100% Caxemira Mongol'], weight: '7 GG', origin: 'Itália',
+        description: 'Gorro canelado em caxemira mongol de grau A. Dupla dobra, extremamente suave.',
+        images: ['https://images.unsplash.com/photo-1576871337632-b9aef4c17ab9?w=900&q=80&auto=format&fit=crop', 'https://images.unsplash.com/photo-1510598969022-c4c6c5d05769?w=900&q=80&auto=format&fit=crop'],
+        tags: [],
+      },
     ];
 
-    const COLLECTIONS = [
-      { id: 'all', label: 'Tudo' },
-      { id: 'tops', label: 'Tops' },
-      { id: 'bottoms', label: 'Bottoms' },
-      { id: 'outerwear', label: 'Outerwear' },
-      { id: 'accessories', label: 'Acessórios' },
+    const GENDERS = [
+      {
+        id: 'homem', label: 'Homem',
+        subs: [
+          { id: 't-shirts', label: 'T-Shirts' },
+          { id: 'sweatshirts', label: 'Sweatshirts' },
+          { id: 'calcas', label: 'Calças' },
+          { id: 'casacos', label: 'Casacos' },
+          { id: 'acessorios', label: 'Acessórios' },
+        ],
+      },
+      {
+        id: 'mulher', label: 'Mulher',
+        subs: [
+          { id: 't-shirts', label: 'T-Shirts' },
+          { id: 'sweatshirts', label: 'Sweatshirts' },
+          { id: 'calcas', label: 'Calças' },
+          { id: 'casacos', label: 'Casacos' },
+          { id: 'acessorios', label: 'Acessórios' },
+        ],
+      },
     ];
 
     const ALL_COLORS = [
@@ -659,7 +794,9 @@
       if (path === '/' || path === '') return { name: 'home', query };
       if (path === '/shop') return { name: 'shop', query };
       if (path.startsWith('/shop/')) {
-        return { name: 'shop', query, category: path.replace('/shop/', '') };
+        const rest = path.replace('/shop/', '');
+        const parts = rest.split('/');
+        return { name: 'shop', query, gender: parts[0], sub: parts[1] || null };
       }
       if (path.startsWith('/product/')) {
         return { name: 'product', query, productId: path.replace('/product/', '') };
@@ -678,24 +815,44 @@
     function Nav() {
       const { route, navigate, cartCount, setDrawerOpen, setSearchOpen, mobileMenuOpen, setMobileMenuOpen } = useStore();
       const r = parseRoute(route);
-      const isActive = (name, cat) => {
-        if (name === 'shop' && cat) return r.name === 'shop' && r.category === cat;
-        if (name === 'shop') return r.name === 'shop' && !r.category;
-        return r.name === name;
-      };
+      const isGenderActive = (gId) => r.name === 'shop' && r.category && r.category.startsWith(gId);
+      const isSubActive = (gId, sId) => r.name === 'shop' && r.category === `${gId}/${sId}`;
       return (
         <React.Fragment>
           <header className="nav">
             <div className="nav-inner">
               <div className="nav-left">
-                <button className="icon-btn" style={{ display: 'none' }} aria-label="menu"
-                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+                <button className="icon-btn" aria-label="menu"
+                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                  style={{ display: 'none' }}>
                   <Icon name={mobileMenuOpen ? 'close' : 'menu'} />
                 </button>
-                <a className={`nav-link ${isActive('shop') ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); navigate('/shop'); }} href="#/shop">Shop</a>
-                <a className={`nav-link ${isActive('shop', 'tops') ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); navigate('/shop/tops'); }} href="#/shop/tops">Tops</a>
-                <a className={`nav-link ${isActive('shop', 'bottoms') ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); navigate('/shop/bottoms'); }} href="#/shop/bottoms">Bottoms</a>
-                <a className={`nav-link ${isActive('shop', 'outerwear') ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); navigate('/shop/outerwear'); }} href="#/shop/outerwear">Outerwear</a>
+                {GENDERS.map(g => (
+                  <div key={g.id} className="nav-dropdown">
+                    <a
+                      className={`nav-link ${isGenderActive(g.id) ? 'active' : ''}`}
+                      onClick={(e) => { e.preventDefault(); navigate(`/shop/${g.id}`); }}
+                      href={`#/shop/${g.id}`}
+                      style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {g.label}
+                      <Icon name="arrow-d" size={10} stroke={1.5} />
+                    </a>
+                    <div className="nav-dropdown-menu">
+                      <span className="nav-dropdown-all"
+                        onClick={() => navigate(`/shop/${g.id}`)}>
+                        VER TUDO — {g.label.toUpperCase()}
+                      </span>
+                      <div className="nav-dropdown-divider" />
+                      {g.subs.map(s => (
+                        <a key={s.id}
+                          className={isSubActive(g.id, s.id) ? 'active' : ''}
+                          onClick={() => navigate(`/shop/${g.id}/${s.id}`)}>
+                          {s.label}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
 
               <a className="brand" onClick={(e) => { e.preventDefault(); navigate('/'); }} href="#/">
@@ -718,7 +875,6 @@
             </div>
           </header>
 
-          {/* Mobile menu shown only on small screens via media query in JS-controlled state */}
           <MobileMenu />
         </React.Fragment>
       );
@@ -726,17 +882,34 @@
 
     function MobileMenu() {
       const { mobileMenuOpen, setMobileMenuOpen, navigate } = useStore();
+      const [openGender, setOpenGender] = React.useState(null);
       if (!mobileMenuOpen) return null;
       const go = (path) => { navigate(path); setMobileMenuOpen(false); };
       return (
         <div className="mobile-menu">
-          <a onClick={() => go('/shop')}>Ver tudo</a>
-          <a onClick={() => go('/shop/tops')}>Tops</a>
-          <a onClick={() => go('/shop/bottoms')}>Bottoms</a>
-          <a onClick={() => go('/shop/outerwear')}>Outerwear</a>
-          <a onClick={() => go('/shop/accessories')}>Accessories</a>
-          <a onClick={() => go('/account')}>Account</a>
-          <a onClick={() => go('/contact')}>Contact</a>
+          {GENDERS.map(g => (
+            <React.Fragment key={g.id}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <a onClick={() => go(`/shop/${g.id}`)}>{g.label}</a>
+                <button className="icon-btn" onClick={() => setOpenGender(openGender === g.id ? null : g.id)}
+                  style={{ marginRight: 24 }}>
+                  <Icon name={openGender === g.id ? 'minus' : 'plus'} size={14} />
+                </button>
+              </div>
+              {openGender === g.id && (
+                <div style={{ paddingLeft: 24, display: 'flex', flexDirection: 'column' }}>
+                  {g.subs.map(s => (
+                    <a key={s.id} onClick={() => go(`/shop/${g.id}/${s.id}`)}
+                      style={{ fontSize: 13, color: 'var(--on-surface-variant)', padding: '8px 0' }}>
+                      {s.label}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </React.Fragment>
+          ))}
+          <a onClick={() => go('/account')}>Conta</a>
+          <a onClick={() => go('/contact')}>Contacto</a>
         </div>
       );
     }
@@ -1091,26 +1264,26 @@
               <div className="sec-head">
                 <div className="left">
                   <span className="t-mono idx">[02]</span>
-                  <h2 className="t-h1" style={{ margin: 0 }}>Categorias</h2>
+                  <h2 className="t-h1" style={{ margin: 0 }}>Coleções</h2>
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }} className="cat-tiles">
-                <div className="collection-tile" onClick={() => navigate('/shop/outerwear')}>
+                <div className="collection-tile" onClick={() => navigate('/shop/homem')}>
                   <img src="https://images.unsplash.com/photo-1539533018447-63fcce2678e3?w=1400&q=85&auto=format&fit=crop" alt="" />
                   <div className="label">
                     <div>
-                      <div className="t-caps muted" style={{ marginBottom: 6 }}>OUTERWEAR · 04 STYLES</div>
-                      <div className="t-h2" style={{ color: '#fff', margin: 0 }}>Casacos & Coletes</div>
+                      <div className="t-caps muted" style={{ marginBottom: 6 }}>HOMEM · 12 PEÇAS</div>
+                      <div className="t-h2" style={{ color: '#fff', margin: 0 }}>Coleção Homem</div>
                     </div>
                     <Icon name="arrow-r" size={20} />
                   </div>
                 </div>
-                <div className="collection-tile" onClick={() => navigate('/shop/bottoms')}>
-                  <img src="https://images.unsplash.com/photo-1542272604-787c3835535d?w=1400&q=85&auto=format&fit=crop" alt="" />
+                <div className="collection-tile" onClick={() => navigate('/shop/mulher')}>
+                  <img src="https://images.unsplash.com/photo-1548624313-0396c75e4b1a?w=1400&q=85&auto=format&fit=crop" alt="" />
                   <div className="label">
                     <div>
-                      <div className="t-caps muted" style={{ marginBottom: 6 }}>BOTTOMS · 03 STYLES</div>
-                      <div className="t-h2" style={{ color: '#fff', margin: 0 }}>Calças & Ganga</div>
+                      <div className="t-caps muted" style={{ marginBottom: 6 }}>MULHER · 10 PEÇAS</div>
+                      <div className="t-h2" style={{ color: '#fff', margin: 0 }}>Coleção Mulher</div>
                     </div>
                     <Icon name="arrow-r" size={20} />
                   </div>
@@ -1218,25 +1391,27 @@
 
 
 
-    function PageShop({ category }) {
+    function PageShop({ gender, sub }) {
       const { navigate, products: PRODUCTS } = useStore();
       const [color, setColor] = useState(null);
       const [size, setSize] = useState(null);
       const [priceMax, setPriceMax] = useState(500);
       const [sort, setSort] = useState('featured');
-      const [filtersOpen, setFiltersOpen] = useState(false);
 
-      const cat = category || 'all';
-      const catLabel = cat === 'all' ? 'Todos os produtos'
-        : cat.charAt(0).toUpperCase() + cat.slice(1);
+      const genderData = GENDERS.find(g => g.id === gender) || null;
+      const subData = genderData && sub ? genderData.subs.find(s => s.id === sub) : null;
+
+      const pageLabel = subData ? subData.label
+        : genderData ? genderData.label
+        : 'Todos os produtos';
 
       const filtered = useMemo(() => {
         let list = PRODUCTS.slice();
-        if (cat !== 'all') list = list.filter(p => p.category === cat);
+        if (gender) list = list.filter(p => p.gender === gender);
+        if (sub) list = list.filter(p => p.category === sub);
         if (color) list = list.filter(p => p.colors.some(c => c.id === color));
         if (size) list = list.filter(p => p.available.includes(size));
         list = list.filter(p => p.price <= priceMax);
-
         switch (sort) {
           case 'price-asc': list.sort((a, b) => a.price - b.price); break;
           case 'price-desc': list.sort((a, b) => b.price - a.price); break;
@@ -1244,64 +1419,112 @@
           default: break;
         }
         return list;
-      }, [cat, color, size, priceMax, sort]);
+      }, [gender, sub, color, size, priceMax, sort, PRODUCTS]);
+
+      const totalForScope = useMemo(() => {
+        let list = PRODUCTS.slice();
+        if (gender) list = list.filter(p => p.gender === gender);
+        if (sub) list = list.filter(p => p.category === sub);
+        return list.length;
+      }, [gender, sub, PRODUCTS]);
 
       const sizes = useMemo(() => {
         const s = new Set();
-        PRODUCTS.forEach(p => { if (cat === 'all' || p.category === cat) p.sizes.forEach(sz => s.add(sz)); });
+        let base = PRODUCTS.slice();
+        if (gender) base = base.filter(p => p.gender === gender);
+        if (sub) base = base.filter(p => p.category === sub);
+        base.forEach(p => p.sizes.forEach(sz => s.add(sz)));
         return Array.from(s);
-      }, [cat]);
+      }, [gender, sub, PRODUCTS]);
+
+      const sidebarSubs = genderData ? genderData.subs : [];
 
       return (
         <div className="page">
-          {/* HEAD */}
           <div className="container">
             <div className="plp-head">
               <div className="plp-crumb">
                 <a onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>HOME</a>
                 <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
                 <a onClick={() => navigate('/shop')} style={{ cursor: 'pointer' }}>SHOP</a>
-                {cat !== 'all' && (
+                {genderData && (
                   <React.Fragment>
                     <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
-                    <span style={{ color: '#fff' }}>{catLabel.toUpperCase()}</span>
+                    <a onClick={() => navigate(`/shop/${genderData.id}`)} style={{ cursor: 'pointer', color: !sub ? '#fff' : 'var(--muted)' }}>
+                      {genderData.label.toUpperCase()}
+                    </a>
+                  </React.Fragment>
+                )}
+                {subData && (
+                  <React.Fragment>
+                    <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
+                    <span style={{ color: '#fff' }}>{subData.label.toUpperCase()}</span>
                   </React.Fragment>
                 )}
               </div>
               <div className="row">
                 <div>
-                  <h1 className="t-h1" style={{ margin: 0 }}>{catLabel}</h1>
+                  <h1 className="t-h1" style={{ margin: 0 }}>{pageLabel}</h1>
                   <p className="t-body-sm" style={{ marginTop: 8, maxWidth: 520 }}>
                     Pequenas séries em materiais auditados. Construídos para durar décadas.
                   </p>
                 </div>
                 <span className="t-mono" style={{ color: 'var(--muted)' }}>
-                  [{String(filtered.length).padStart(2, '0')}/{String(PRODUCTS.filter(p => cat === 'all' || p.category === cat).length).padStart(2, '0')}]
+                  [{String(filtered.length).padStart(2, '0')}/{String(totalForScope).padStart(2, '0')}]
                 </span>
               </div>
             </div>
           </div>
 
-          {/* LAYOUT */}
           <div className="container">
             <div className="plp-layout">
-              {/* FILTERS */}
               <aside className="plp-filters">
+                {/* Gender selector */}
                 <div className="filter-group">
-                  <h4>Categoria</h4>
+                  <h4>Secção</h4>
                   <div className="filter-list">
-                    {COLLECTIONS.map(c => (
-                      <a key={c.id} className="check"
-                        onClick={() => navigate(c.id === 'all' ? '/shop' : `/shop/${c.id}`)}
-                        style={{ cursor: 'pointer', color: cat === c.id ? '#fff' : 'var(--on-surface-variant)' }}>
-                        <span style={{ fontSize: 13 }}>{c.label}</span>
+                    <a className="check" onClick={() => navigate('/shop')}
+                      style={{ cursor: 'pointer', color: !gender ? '#fff' : 'var(--on-surface-variant)' }}>
+                      <span style={{ fontSize: 13 }}>Tudo</span>
+                      <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>{PRODUCTS.length}</span>
+                    </a>
+                    {GENDERS.map(g => (
+                      <a key={g.id} className="check" onClick={() => navigate(`/shop/${g.id}`)}
+                        style={{ cursor: 'pointer', color: gender === g.id ? '#fff' : 'var(--on-surface-variant)' }}>
+                        <span style={{ fontSize: 13 }}>{g.label}</span>
                         <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>
-                          {c.id === 'all' ? PRODUCTS.length : PRODUCTS.filter(p => p.category === c.id).length}
+                          {PRODUCTS.filter(p => p.gender === g.id).length}
                         </span>
                       </a>
                     ))}
                   </div>
                 </div>
+
+                {/* Subcategory selector (only shown when a gender is selected) */}
+                {sidebarSubs.length > 0 && (
+                  <div className="filter-group">
+                    <h4>Categoria</h4>
+                    <div className="filter-list">
+                      <a className="check" onClick={() => navigate(`/shop/${genderData.id}`)}
+                        style={{ cursor: 'pointer', color: !sub ? '#fff' : 'var(--on-surface-variant)' }}>
+                        <span style={{ fontSize: 13 }}>Tudo {genderData.label}</span>
+                        <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>
+                          {PRODUCTS.filter(p => p.gender === genderData.id).length}
+                        </span>
+                      </a>
+                      {sidebarSubs.map(s => (
+                        <a key={s.id} className="check"
+                          onClick={() => navigate(`/shop/${genderData.id}/${s.id}`)}
+                          style={{ cursor: 'pointer', color: sub === s.id ? '#fff' : 'var(--on-surface-variant)' }}>
+                          <span style={{ fontSize: 13 }}>{s.label}</span>
+                          <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>
+                            {PRODUCTS.filter(p => p.gender === genderData.id && p.category === s.id).length}
+                          </span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="filter-group">
                   <h4>Cor</h4>
@@ -1310,8 +1533,7 @@
                       <button key={c.id} className={`swatch ${color === c.id ? 'active' : ''}`}
                         style={{ background: c.hex }}
                         onClick={() => setColor(color === c.id ? null : c.id)}
-                        aria-label={c.label}
-                        title={c.label} />
+                        aria-label={c.label} title={c.label} />
                     ))}
                   </div>
                 </div>
@@ -1346,11 +1568,10 @@
                 )}
               </aside>
 
-              {/* MAIN */}
               <div className="plp-main">
                 <div className="plp-toolbar">
                   <span className="count">[{String(filtered.length).padStart(2, '0')}] resultados</span>
-                  <div style={{ display: 'flex', gap: 12, alignPeças: 'center' }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                     <span className="t-mono" style={{ color: 'var(--muted)', fontSize: 10 }}>ORDENAR</span>
                     <select className="select" value={sort} onChange={(e) => setSort(e.target.value)}>
                       <option value="featured">Destaque</option>
@@ -1403,7 +1624,7 @@
       const color = product.colors[colorIdx];
       const isFav = wishlist.includes(product.id);
 
-      const related = PRODUCTS.filter(p => p.category === product.category && p.id !== product.id).slice(0, 4);
+      const related = PRODUCTS.filter(p => p.gender === product.gender && p.category === product.category && p.id !== product.id).slice(0, 4);
 
       const handleAdd = () => {
         if (!size) return;
@@ -2580,7 +2801,7 @@
       let page;
       switch (r.name) {
         case 'home': page = <PageHome />; break;
-        case 'shop': page = <PageShop category={r.category} />; break;
+        case 'shop': page = <PageShop gender={r.gender} sub={r.sub} />; break;
         case 'product': page = <PageProduct productId={r.productId} />; break;
         case 'cart': page = <PageCart />; break;
         case 'checkout': page = <PageCheckout />; break;
