@@ -45,15 +45,17 @@ SELECT
     (SELECT json_agg(DISTINCT pt.tag) FROM product_tags pt WHERE pt.product_id = p.id), '[]'
   ) AS tags,
   COALESCE(
-    (SELECT json_agg(json_build_object('slug', pc.slug, 'label', pc.label, 'hex', pc.hex) ORDER BY pc.sort_order)
-     FROM product_colors pc WHERE pc.product_id = p.id), '[]'
+    (SELECT json_agg(json_build_object('id', col.id, 'slug', col.slug, 'label', col.label, 'hex', col.hex) ORDER BY pc.sort_order)
+     FROM product_colors pc JOIN colors col ON col.id = pc.color_id WHERE pc.product_id = p.id), '[]'
   ) AS colors,
   COALESCE(
-    (SELECT json_agg(s ORDER BY s.sort_order) FROM product_sizes s WHERE s.product_id = p.id), '[]'
+    (SELECT json_agg(DISTINCT s.label ORDER BY s.label)
+     FROM product_variants pv JOIN sizes s ON s.id = pv.size_id WHERE pv.product_id = p.id), '[]'
   ) AS sizes,
   COALESCE(
-    (SELECT json_agg(DISTINCT ps.size_label) FROM product_sizes ps
-     WHERE ps.product_id = p.id AND ps.is_available = true), '[]'
+    (SELECT json_agg(DISTINCT s.label ORDER BY s.label)
+     FROM product_variants pv JOIN sizes s ON s.id = pv.size_id
+     WHERE pv.product_id = p.id AND pv.is_available = true), '[]'
   ) AS available_sizes,
   COALESCE((SELECT ROUND(AVG(r.rating)::numeric,1) FROM reviews r WHERE r.product_id = p.id), 0) AS avg_rating,
   COALESCE((SELECT COUNT(*) FROM reviews r WHERE r.product_id = p.id), 0) AS review_count
