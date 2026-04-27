@@ -531,9 +531,11 @@
         if (window.__SUPABASE_CONFIGURED__) {
           window.supabaseClient.auth.getSession().then(({ data }) => {
             if (data.session) {
-              setSbUser(data.session.user);
+              const u = data.session.user;
+              setSbUser(u);
               setAuthed(true);
-              SupabaseAPI.getProfile(data.session.user.id).then(p => { if (p) setSbProfile(p); });
+              SupabaseAPI.getProfile(u.id).then(p => { if (p) setSbProfile(p); });
+              SupabaseAPI.getWishlist(u.id).then(ids => { if (ids) setWishlist(ids); });
             }
           });
           const { data: { subscription } } = window.supabaseClient.auth.onAuthStateChange((_event, session) => {
@@ -541,6 +543,7 @@
             setAuthed(!!session);
             if (session?.user) {
               SupabaseAPI.getProfile(session.user.id).then(p => { if (p) setSbProfile(p); });
+              SupabaseAPI.getWishlist(session.user.id).then(ids => { if (ids) setWishlist(ids); });
             } else {
               setSbProfile(null);
             }
@@ -608,17 +611,25 @@
       const clearCart = useCallback(() => setCart([]), []);
 
       const toggleWishlist = useCallback((productId) => {
-        setWishlist(prev => prev.includes(productId)
-          ? prev.filter(id => id !== productId)
-          : [...prev, productId]);
-      }, []);
+        setWishlist(prev => {
+          const inList = prev.includes(productId);
+          if (sbUser && window.__SUPABASE_CONFIGURED__) {
+            if (inList) {
+              SupabaseAPI.removeFromWishlist(sbUser.id, productId).catch(() => {});
+            } else {
+              SupabaseAPI.addToWishlist(sbUser.id, productId).catch(() => {});
+            }
+          }
+          return inList ? prev.filter(id => id !== productId) : [...prev, productId];
+        });
+      }, [sbUser]);
 
       const cartCount = useMemo(() => cart.reduce((sum, it) => sum + it.qty, 0), [cart]);
       const cartSubtotal = useMemo(() => cart.reduce((sum, it) => {
         const prods = dbProducts || PRODUCTS;
         const p = prods.find(p => p.id === it.productId);
         return sum + (p ? p.price * it.qty : 0);
-      }, [cart, dbProducts]));
+      }, 0), [cart, dbProducts]);
 
       // Use DB products if available, else fallback to local
       const activeProducts = dbProducts || PRODUCTS;
