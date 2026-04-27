@@ -1,0 +1,2597 @@
+﻿
+    const { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext } = React;
+
+    // ============================================================
+    // SUPABASE API â€” Camada de dados
+    // Quando o Supabase estiver configurado, usa a BD em vez de dados locais
+    // ============================================================
+
+    const SupabaseAPI = {
+      // Carregar todos os produtos (com fallback para dados locais)
+      async getProducts() {
+        if (!window.__SUPABASE_CONFIGURED__) return null;
+        try {
+          const { data, error } = await window.supabaseClient
+            .from('products_full')
+            .select('*')
+            .order('sort_order');
+          if (error) throw error;
+          return data.map(p => ({
+            id: p.id,
+            sku: p.sku,
+            name: p.name,
+            slug: p.slug,
+            price: Number(p.price),
+            category: p.category_slug,
+            type: p.type,
+            colors: (p.colors || []).map(c => ({ id: c.slug, label: c.label, hex: c.hex })),
+            sizes: (p.sizes || []),
+            available: (p.available_sizes || []),
+            materials: p.materials || [],
+            weight: p.weight || 'â€”',
+            origin: p.origin || 'â€”',
+            description: p.description || '',
+            images: (p.images || []).map(img => img.url),
+            tags: (p.tags || []),
+            avgRating: p.avg_rating,
+            reviewCount: p.review_count,
+          }));
+        } catch (e) {
+          console.warn('Supabase: erro ao carregar produtos', e.message);
+          return null;
+        }
+      },
+
+      // AutenticaÃ§Ã£o
+      async signIn(email, password) {
+        const { data, error } = await window.supabaseClient.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        return data;
+      },
+
+      async signUp(email, password, firstName, lastName) {
+        const { data, error } = await window.supabaseClient.auth.signUp({
+          email, password,
+          options: { data: { first_name: firstName, last_name: lastName } }
+        });
+        if (error) throw error;
+        return data;
+      },
+
+      async signOut() {
+        await window.supabaseClient.auth.signOut();
+      },
+
+      async getSession() {
+        const { data } = await window.supabaseClient.auth.getSession();
+        return data.session;
+      },
+
+      // Perfil
+      async getProfile(userId) {
+        if (!window.__SUPABASE_CONFIGURED__) return null;
+        const { data, error } = await window.supabaseClient
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single();
+        if (error) return null;
+        return data;
+      },
+
+      async updateProfile(userId, updates) {
+        const { error } = await window.supabaseClient
+          .from('profiles')
+          .update(updates)
+          .eq('id', userId);
+        if (error) throw error;
+      },
+
+      // Wishlist
+      async getWishlist(profileId) {
+        if (!window.__SUPABASE_CONFIGURED__) return null;
+        const { data } = await window.supabaseClient
+          .from('wishlists')
+          .select('product_id')
+          .eq('profile_id', profileId);
+        return (data || []).map(w => w.product_id);
+      },
+
+      async addToWishlist(profileId, productId) {
+        const { error } = await window.supabaseClient
+          .from('wishlists')
+          .insert({ profile_id: profileId, product_id: productId });
+        if (error && error.code !== '23505') throw error;
+      },
+
+      async removeFromWishlist(profileId, productId) {
+        await window.supabaseClient
+          .from('wishlists')
+          .delete()
+          .match({ profile_id: profileId, product_id: productId });
+      },
+
+      // Encomendas
+      async getOrders(profileId) {
+        if (!window.__SUPABASE_CONFIGURED__) return null;
+        const { data } = await window.supabaseClient
+          .from('orders')
+          .select('*, order_items(*)')
+          .eq('profile_id', profileId)
+          .order('created_at', { ascending: false });
+        return data || [];
+      },
+
+      // Newsletter
+      async subscribeNewsletter(email, firstName) {
+        if (!window.__SUPABASE_CONFIGURED__) return;
+        await window.supabaseClient
+          .from('newsletter_subscribers')
+          .upsert({ email, first_name: firstName }, { onConflict: 'email' });
+      },
+
+      // Checkout â€” cria encomenda via funÃ§Ã£o RPC
+      async placeOrder(params) {
+        if (!window.__SUPABASE_CONFIGURED__) return 'KR-' + Math.floor(Math.random() * 900000 + 100000);
+        const { data, error } = await window.supabaseClient.rpc('checkout_cart', params);
+        if (error) throw error;
+        return data;
+      },
+    };
+
+    window.SupabaseAPI = SupabaseAPI;
+
+
+    // ============================================================
+    // PRODUCT DATA
+    // ============================================================
+
+    const PRODUCTS = [
+      {
+        id: 'k-001',
+        sku: 'KR-TEE-001-BLK',
+        name: 'Heavyweight Tee 001',
+        price: 65,
+        category: 'tops',
+        type: 'T-Shirt',
+        colors: [
+          { id: 'black', label: 'Preto', hex: '#0a0a0a' },
+          { id: 'cream', label: 'Creme', hex: '#e8e2d6' },
+          { id: 'olive', label: 'Olive', hex: '#4a4a3a' },
+        ],
+        sizes: ['XS', 'S', 'M', 'L', 'XL', 'XXL'],
+        available: ['XS', 'S', 'M', 'L', 'XL'],
+        materials: ['100% AlgodÃ£o OrgÃ¢nico'],
+        weight: '320 GSM',
+        origin: 'Portugal',
+        description: 'T-shirt em algodÃ£o pesado construÃ­da num fio de anel simples. Corte boxy com gola canelada reforÃ§ada. PrÃ©-lavada para mÃ­nima retraÃ§Ã£o.',
+        images: [
+          'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1622445275576-721325763afe?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1576566588028-4147f3842f27?w=900&q=80&auto=format&fit=crop',
+        ],
+        tags: ['Novo'],
+      },
+      {
+        id: 'k-002',
+        sku: 'KR-CRW-002-CRM',
+        name: 'Loopback Crewneck',
+        price: 145,
+        category: 'tops',
+        type: 'Sweatshirt',
+        colors: [
+          { id: 'cream', label: 'Creme', hex: '#e8e2d6' },
+          { id: 'black', label: 'Preto', hex: '#0a0a0a' },
+          { id: 'graphite', label: 'Grafite', hex: '#3a3a3a' },
+        ],
+        sizes: ['XS', 'S', 'M', 'L', 'XL'],
+        available: ['S', 'M', 'L', 'XL'],
+        materials: ['85% AlgodÃ£o', '15% PoliÃ©ster'],
+        weight: '480 GSM',
+        origin: 'Portugal',
+        description: 'Sweatshirt relaxada em french terry loopback pesado. Ombros caÃ­dos, punhos e barra canelados. Tingida em peÃ§a para profundidade tonal.',
+        images: [
+          'https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=900&q=80&auto=format&fit=crop',
+        ],
+        tags: ['Mais Vendido'],
+      },
+      {
+        id: 'k-003',
+        sku: 'KR-PNT-003-BLK',
+        name: 'Wide Leg Trouser',
+        price: 195,
+        category: 'bottoms',
+        type: 'CalÃ§as',
+        colors: [
+          { id: 'black', label: 'Preto', hex: '#0a0a0a' },
+          { id: 'taupe', label: 'Taupe', hex: '#7a6e5e' },
+        ],
+        sizes: ['28', '30', '32', '34', '36'],
+        available: ['28', '30', '32', '34'],
+        materials: ['68% LÃ£', '30% PoliÃ©ster', '2% Elastano'],
+        weight: '240 GSM',
+        origin: 'ItÃ¡lia',
+        description: 'CalÃ§a de perna larga em mistura de lÃ£ de quatro estaÃ§Ãµes. Frente com uma prega, bolsos laterais inclinados e barra limpa sem acabamento.',
+        images: [
+          'https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1473966968600-fa801b3a9746?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?w=900&q=80&auto=format&fit=crop',
+        ],
+        tags: [],
+      },
+      {
+        id: 'k-004',
+        sku: 'KR-OUT-004-BLK',
+        name: 'Type-04 Field Coat',
+        price: 425,
+        category: 'outerwear',
+        type: 'Casaco',
+        colors: [
+          { id: 'black', label: 'Preto', hex: '#0a0a0a' },
+          { id: 'navy', label: 'Azul-Marinho', hex: '#1c2233' },
+        ],
+        sizes: ['S', 'M', 'L', 'XL'],
+        available: ['M', 'L', 'XL'],
+        materials: ['100% AlgodÃ£o (Encerado)'],
+        weight: '14 oz',
+        origin: 'JapÃ£o',
+        description: 'Casaco de campo utilitÃ¡rio com quatro bolsos foles e fecho com flap de proteÃ§Ã£o. ConstruÃ­do em canvas encerado japonÃªs que desenvolve pÃ¡tina Ãºnica com o uso.',
+        images: [
+          'https://images.unsplash.com/photo-1539533018447-63fcce2678e3?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1591047139756-eb1ab9c8f99e?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1544022613-e87ca75a784a?w=900&q=80&auto=format&fit=crop',
+        ],
+        tags: ['Novo'],
+      },
+      {
+        id: 'k-005',
+        sku: 'KR-KNT-005-OLV',
+        name: 'Merino Half-Zip',
+        price: 215,
+        category: 'tops',
+        type: 'Malha',
+        colors: [
+          { id: 'olive', label: 'Olive', hex: '#4a4a3a' },
+          { id: 'cream', label: 'Creme', hex: '#e8e2d6' },
+          { id: 'black', label: 'Preto', hex: '#0a0a0a' },
+        ],
+        sizes: ['S', 'M', 'L', 'XL'],
+        available: ['S', 'M', 'L'],
+        materials: ['100% LÃ£ Merino'],
+        weight: '12 GG',
+        origin: 'EscÃ³cia',
+        description: 'Meia-fecho em merino de malha fina com gola canelada estruturada. Peso mÃ©dio, respirÃ¡vel, regulaÃ§Ã£o natural da temperatura.',
+        images: [
+          'https://images.unsplash.com/photo-1614093302611-8efc4de12407?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1620012253295-c15cc3e65df4?w=900&q=80&auto=format&fit=crop',
+        ],
+        tags: [],
+      },
+      {
+        id: 'k-006',
+        sku: 'KR-PNT-006-CRM',
+        name: 'Carpenter Pant',
+        price: 175,
+        category: 'bottoms',
+        type: 'CalÃ§as',
+        colors: [
+          { id: 'cream', label: 'Creme', hex: '#e8e2d6' },
+          { id: 'black', label: 'Preto', hex: '#0a0a0a' },
+        ],
+        sizes: ['28', '30', '32', '34', '36'],
+        available: ['28', '30', '32', '34', '36'],
+        materials: ['100% Canvas de AlgodÃ£o'],
+        weight: '12 oz',
+        origin: 'Portugal',
+        description: 'CalÃ§a de carpinteiro relaxada em canvas pesado. Loop de martelo, joelhos duplos e subida limpa na frente.',
+        images: [
+          'https://images.unsplash.com/photo-1542272604-787c3835535d?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1542272454315-7ad9f1b4e64e?w=900&q=80&auto=format&fit=crop',
+        ],
+        tags: [],
+      },
+      {
+        id: 'k-007',
+        sku: 'KR-ACC-007-BLK',
+        name: 'Object Cap',
+        price: 55,
+        category: 'accessories',
+        type: 'BonÃ©',
+        colors: [
+          { id: 'black', label: 'Preto', hex: '#0a0a0a' },
+          { id: 'cream', label: 'Creme', hex: '#e8e2d6' },
+        ],
+        sizes: ['One Size'],
+        available: ['One Size'],
+        materials: ['100% Sarja de AlgodÃ£o'],
+        weight: 'â€”',
+        origin: 'Portugal',
+        description: 'BonÃ© de seis painÃ©is sem estrutura. Fecho em tecido prÃ³prio com ferragens em latÃ£o envelhecido.',
+        images: [
+          'https://images.unsplash.com/photo-1588850561407-ed78c282e89b?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1521369909029-2afed882baee?w=900&q=80&auto=format&fit=crop',
+        ],
+        tags: [],
+      },
+      {
+        id: 'k-008',
+        sku: 'KR-OUT-008-BLK',
+        name: 'Cropped Liner Vest',
+        price: 165,
+        category: 'outerwear',
+        type: 'Colete',
+        colors: [
+          { id: 'black', label: 'Preto', hex: '#0a0a0a' },
+          { id: 'olive', label: 'Olive', hex: '#4a4a3a' },
+        ],
+        sizes: ['S', 'M', 'L', 'XL'],
+        available: ['S', 'M', 'L'],
+        materials: ['100% Nylon Reciclado'],
+        weight: 'â€”',
+        origin: 'Vietname',
+        description: 'Colete acolchoado compressÃ­vel em nylon ripstop reciclado. Fecho duplo, bolso interno com fecho.',
+        images: [
+          'https://images.unsplash.com/photo-1591047139756-eb1ab9c8f99e?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=900&q=80&auto=format&fit=crop',
+        ],
+        tags: ['EdiÃ§Ã£o Limitada'],
+      },
+      {
+        id: 'k-009',
+        sku: 'KR-TEE-009-CRM',
+        name: 'Tubular Long Sleeve',
+        price: 85,
+        category: 'tops',
+        type: 'T-Shirt',
+        colors: [
+          { id: 'cream', label: 'Creme', hex: '#e8e2d6' },
+          { id: 'black', label: 'Preto', hex: '#0a0a0a' },
+        ],
+        sizes: ['XS', 'S', 'M', 'L', 'XL'],
+        available: ['S', 'M', 'L', 'XL'],
+        materials: ['100% AlgodÃ£o Pima'],
+        weight: '220 GSM',
+        origin: 'Peru',
+        description: 'Manga longa cortada numa mÃ¡quina de malha tubular â€” um corpo Ãºnico, sem costuras, para uma queda limpa.',
+        images: [
+          'https://images.unsplash.com/photo-1622519407650-3df9883f76a5?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1583744946564-b52ac1c389c8?w=900&q=80&auto=format&fit=crop',
+        ],
+        tags: [],
+      },
+      {
+        id: 'k-010',
+        sku: 'KR-ACC-010-BLK',
+        name: 'Utility Tote',
+        price: 95,
+        category: 'accessories',
+        type: 'Mala',
+        colors: [
+          { id: 'black', label: 'Preto', hex: '#0a0a0a' },
+          { id: 'cream', label: 'Creme', hex: '#e8e2d6' },
+        ],
+        sizes: ['One Size'],
+        available: ['One Size'],
+        materials: ['100% Canvas de AlgodÃ£o'],
+        weight: '16 oz',
+        origin: 'Portugal',
+        description: 'Tote em canvas pesado com base reforÃ§ada, pegas com rebites e bolso interior com fecho.',
+        images: [
+          'https://images.unsplash.com/photo-1591561954557-26941169b49e?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=900&q=80&auto=format&fit=crop',
+        ],
+        tags: [],
+      },
+      {
+        id: 'k-011',
+        sku: 'KR-KNT-011-BLK',
+        name: 'Cashmere Beanie',
+        price: 85,
+        category: 'accessories',
+        type: 'Gorro',
+        colors: [
+          { id: 'black', label: 'Preto', hex: '#0a0a0a' },
+          { id: 'graphite', label: 'Grafite', hex: '#3a3a3a' },
+          { id: 'cream', label: 'Creme', hex: '#e8e2d6' },
+        ],
+        sizes: ['One Size'],
+        available: ['One Size'],
+        materials: ['100% Caxemira Mongol'],
+        weight: '7 GG',
+        origin: 'ItÃ¡lia',
+        description: 'Gorro canelado em caxemira. Dupla dobra, estruturado, macio.',
+        images: [
+          'https://images.unsplash.com/photo-1576871337632-b9aef4c17ab9?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1510598969022-c4c6c5d05769?w=900&q=80&auto=format&fit=crop',
+        ],
+        tags: [],
+      },
+      {
+        id: 'k-012',
+        sku: 'KR-PNT-012-BLK',
+        name: 'Selvedge Denim',
+        price: 245,
+        category: 'bottoms',
+        type: 'Ganga',
+        colors: [
+          { id: 'black', label: 'Preto', hex: '#0a0a0a' },
+          { id: 'indigo', label: 'Ãndigo', hex: '#1c2840' },
+        ],
+        sizes: ['28', '30', '32', '34', '36'],
+        available: ['30', '32', '34'],
+        materials: ['100% AlgodÃ£o (Selvedge)'],
+        weight: '14.5 oz',
+        origin: 'JapÃ£o',
+        description: 'Ganga bruta tecida em teares de lanÃ§adeira vintage em Okayama. Perna direita, cintura mÃ©dia, construÃ§Ã£o com rebites escondidos.',
+        images: [
+          'https://images.unsplash.com/photo-1542272604-787c3835535d?w=900&q=80&auto=format&fit=crop',
+          'https://images.unsplash.com/photo-1604176354204-9268737828e4?w=900&q=80&auto=format&fit=crop',
+        ],
+        tags: ['Mais Vendido'],
+      },
+    ];
+
+    const COLLECTIONS = [
+      { id: 'all', label: 'Tudo' },
+      { id: 'tops', label: 'Tops' },
+      { id: 'bottoms', label: 'Bottoms' },
+      { id: 'outerwear', label: 'Outerwear' },
+      { id: 'accessories', label: 'AcessÃ³rios' },
+    ];
+
+    const ALL_COLORS = [
+      { id: 'black', label: 'Preto', hex: '#0a0a0a' },
+      { id: 'cream', label: 'Creme', hex: '#e8e2d6' },
+      { id: 'olive', label: 'Olive', hex: '#4a4a3a' },
+      { id: 'graphite', label: 'Grafite', hex: '#3a3a3a' },
+      { id: 'taupe', label: 'Taupe', hex: '#7a6e5e' },
+      { id: 'navy', label: 'Azul-Marinho', hex: '#1c2233' },
+      { id: 'indigo', label: 'Ãndigo', hex: '#1c2840' },
+    ];
+
+    const ALL_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '28', '30', '32', '34', '36', 'One Size'];
+
+    const SHIPPING = [
+      { id: 'standard', label: 'Standard', sub: '3â€“5 dias Ãºteis', price: 4.95 },
+      { id: 'express', label: 'Express', sub: '1â€“2 dias Ãºteis', price: 9.95 },
+      { id: 'pickup', label: 'Click & Collect', sub: 'Lisboa â€” pronto em 24h', price: 0 },
+    ];
+
+
+
+
+    // Tiny inline icon set â€” 1.5px stroke, square caps to match design.md spec.
+    const Icon = ({ name, size = 18, stroke = 1.5, ...rest }) => {
+      const common = {
+        width: size, height: size, viewBox: '0 0 24 24',
+        fill: 'none', stroke: 'currentColor', strokeWidth: stroke,
+        strokeLinecap: 'square', strokeLinejoin: 'miter',
+        ...rest,
+      };
+      switch (name) {
+        case 'menu': return <svg {...common}><path d="M3 6h18M3 12h18M3 18h18" /></svg>;
+        case 'close': return <svg {...common}><path d="M5 5l14 14M19 5L5 19" /></svg>;
+        case 'search': return <svg {...common}><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.5-4.5" /></svg>;
+        case 'user': return <svg {...common}><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-7 8-7s8 3 8 7" /></svg>;
+        case 'bag': return <svg {...common}><path d="M5 8h14l-1 12H6L5 8z" /><path d="M9 8a3 3 0 016 0" /></svg>;
+        case 'heart': return <svg {...common} strokeLinejoin="round"><path d="M12 20s-7-4.5-7-10a4 4 0 017-2.6A4 4 0 0119 10c0 5.5-7 10-7 10z" /></svg>;
+        case 'heart-fill': return <svg {...common} fill="currentColor" stroke="none"><path d="M12 20s-7-4.5-7-10a4 4 0 017-2.6A4 4 0 0119 10c0 5.5-7 10-7 10z" /></svg>;
+        case 'arrow-r': return <svg {...common}><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
+        case 'arrow-l': return <svg {...common}><path d="M19 12H5M11 6l-6 6 6 6" /></svg>;
+        case 'arrow-d': return <svg {...common}><path d="M12 5v14M6 13l6 6 6-6" /></svg>;
+        case 'plus': return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>;
+        case 'minus': return <svg {...common}><path d="M5 12h14" /></svg>;
+        case 'check': return <svg {...common} strokeLinejoin="round"><path d="M5 12l5 5 9-11" /></svg>;
+        case 'filter': return <svg {...common}><path d="M3 6h18M6 12h12M10 18h4" /></svg>;
+        case 'grid': return <svg {...common}><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" /></svg>;
+        case 'truck': return <svg {...common}><path d="M3 7h11v9H3zM14 11h4l3 3v2h-7" /><circle cx="7" cy="18" r="2" /><circle cx="17" cy="18" r="2" /></svg>;
+        case 'shield': return <svg {...common} strokeLinejoin="round"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6l8-3z" /></svg>;
+        case 'rotate': return <svg {...common}><path d="M3 12a9 9 0 0115-6.7L21 8M21 4v4h-4M21 12a9 9 0 01-15 6.7L3 16M3 20v-4h4" /></svg>;
+        case 'leaf': return <svg {...common} strokeLinejoin="round"><path d="M5 19c0-9 6-14 14-14 0 9-5 14-14 14zM5 19l9-9" /></svg>;
+        case 'instagram': return <svg {...common}><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r="0.6" fill="currentColor" /></svg>;
+        case 'mail': return <svg {...common}><rect x="3" y="5" width="18" height="14" /><path d="M3 7l9 6 9-6" /></svg>;
+        case 'pin': return <svg {...common} strokeLinejoin="round"><path d="M12 22s7-7 7-13a7 7 0 10-14 0c0 6 7 13 7 13z" /><circle cx="12" cy="9" r="2.5" /></svg>;
+        case 'phone': return <svg {...common} strokeLinejoin="round"><path d="M5 4h4l2 5-3 2a12 12 0 005 5l2-3 5 2v4a2 2 0 01-2 2A17 17 0 013 6a2 2 0 012-2z" /></svg>;
+        default: return null;
+      }
+    };
+
+
+
+
+    const StoreContext = createContext(null);
+
+    function loadJSON(key, fallback) {
+      try {
+        const v = localStorage.getItem(key);
+        return v ? JSON.parse(v) : fallback;
+      } catch { return fallback; }
+    }
+    function saveJSON(key, v) {
+      try { localStorage.setItem(key, JSON.stringify(v)); } catch { }
+    }
+
+    function StoreProvider({ children }) {
+      // Routing â€” hash based so refresh keeps you in place.
+      const [route, setRoute] = useState(() => {
+        const h = window.location.hash.replace(/^#/, '');
+        return h || '/';
+      });
+      // Supabase user
+      const [sbUser, setSbUser] = useState(null);
+      const [sbProfile, setSbProfile] = useState(null);
+      // Async products override (from Supabase)
+      const [dbProducts, setDbProducts] = useState(null);
+
+      useEffect(() => {
+        // Auth state listener
+        if (window.__SUPABASE_CONFIGURED__) {
+          window.supabaseClient.auth.getSession().then(({ data }) => {
+            if (data.session) {
+              setSbUser(data.session.user);
+              setAuthed(true);
+              SupabaseAPI.getProfile(data.session.user.id).then(p => { if (p) setSbProfile(p); });
+            }
+          });
+          const { data: { subscription } } = window.supabaseClient.auth.onAuthStateChange((_event, session) => {
+            setSbUser(session?.user || null);
+            setAuthed(!!session);
+            if (session?.user) {
+              SupabaseAPI.getProfile(session.user.id).then(p => { if (p) setSbProfile(p); });
+            } else {
+              setSbProfile(null);
+            }
+          });
+          // Load products from DB
+          SupabaseAPI.getProducts().then(prods => { if (prods) setDbProducts(prods); });
+          return () => subscription.unsubscribe();
+        }
+      }, []);
+      useEffect(() => {
+        const onHash = () => {
+          setRoute(window.location.hash.replace(/^#/, '') || '/');
+          window.scrollTo({ top: 0, behavior: 'instant' });
+        };
+        window.addEventListener('hashchange', onHash);
+        return () => window.removeEventListener('hashchange', onHash);
+      }, []);
+      const navigate = useCallback((path) => {
+        window.location.hash = path;
+      }, []);
+
+      // Cart: [{ id, productId, color, size, qty }]
+      const [cart, setCart] = useState(() => loadJSON('kara.cart', []));
+      useEffect(() => saveJSON('kara.cart', cart), [cart]);
+
+      const [wishlist, setWishlist] = useState(() => loadJSON('kara.wishlist', []));
+      useEffect(() => saveJSON('kara.wishlist', wishlist), [wishlist]);
+
+      const [authed, setAuthed] = useState(() => loadJSON('kara.authed', false));
+      useEffect(() => saveJSON('kara.authed', authed), [authed]);
+
+      const [drawerOpen, setDrawerOpen] = useState(false);
+      const [searchOpen, setSearchOpen] = useState(false);
+      const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+      const [toast, setToast] = useState(null);
+
+      const showToast = useCallback((msg) => {
+        setToast(msg);
+        setTimeout(() => setToast(null), 2400);
+      }, []);
+
+      const addToCart = useCallback((productId, color, size, qty = 1) => {
+        setCart(prev => {
+          const key = `${productId}|${color}|${size}`;
+          const idx = prev.findIndex(it => `${it.productId}|${it.color}|${it.size}` === key);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = { ...next[idx], qty: next[idx].qty + qty };
+            return next;
+          }
+          return [...prev, { id: key, productId, color, size, qty }];
+        });
+        showToast('Adicionado ao carrinho');
+        setDrawerOpen(true);
+      }, [showToast]);
+
+      const updateQty = useCallback((id, qty) => {
+        setCart(prev => prev.map(it => it.id === id ? { ...it, qty: Math.max(1, qty) } : it));
+      }, []);
+
+      const removeFromCart = useCallback((id) => {
+        setCart(prev => prev.filter(it => it.id !== id));
+      }, []);
+
+      const clearCart = useCallback(() => setCart([]), []);
+
+      const toggleWishlist = useCallback((productId) => {
+        setWishlist(prev => prev.includes(productId)
+          ? prev.filter(id => id !== productId)
+          : [...prev, productId]);
+      }, []);
+
+      const cartCount = useMemo(() => cart.reduce((sum, it) => sum + it.qty, 0), [cart]);
+      const cartSubtotal = useMemo(() => cart.reduce((sum, it) => {
+        const prods = dbProducts || PRODUCTS;
+        const p = prods.find(p => p.id === it.productId);
+        return sum + (p ? p.price * it.qty : 0);
+      }, [cart, dbProducts]));
+
+      // Use DB products if available, else fallback to local
+      const activeProducts = dbProducts || PRODUCTS;
+
+      const value = {
+        route, navigate,
+        cart, addToCart, updateQty, removeFromCart, clearCart, cartCount, cartSubtotal,
+        wishlist, toggleWishlist,
+        authed, setAuthed,
+        sbUser, sbProfile, setSbProfile,
+        products: activeProducts,
+        drawerOpen, setDrawerOpen,
+        searchOpen, setSearchOpen,
+        mobileMenuOpen, setMobileMenuOpen,
+        toast, showToast,
+      };
+
+      return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+    }
+
+    const useStore = () => useContext(StoreContext);
+
+    // Parse path -> { name, params }
+    function parseRoute(route) {
+      const path = route.split('?')[0];
+      const query = Object.fromEntries(new URLSearchParams(route.split('?')[1] || ''));
+      if (path === '/' || path === '') return { name: 'home', query };
+      if (path === '/shop') return { name: 'shop', query };
+      if (path.startsWith('/shop/')) {
+        return { name: 'shop', query, category: path.replace('/shop/', '') };
+      }
+      if (path.startsWith('/product/')) {
+        return { name: 'product', query, productId: path.replace('/product/', '') };
+      }
+      if (path === '/cart') return { name: 'cart', query };
+      if (path === '/checkout') return { name: 'checkout', query };
+      if (path === '/account') return { name: 'account', query };
+      if (path === '/contact') return { name: 'contact', query };
+      return { name: 'home', query };
+    }
+
+
+
+
+
+    function Nav() {
+      const { route, navigate, cartCount, setDrawerOpen, setSearchOpen, mobileMenuOpen, setMobileMenuOpen } = useStore();
+      const r = parseRoute(route);
+      const isActive = (name, cat) => {
+        if (name === 'shop' && cat) return r.name === 'shop' && r.category === cat;
+        if (name === 'shop') return r.name === 'shop' && !r.category;
+        return r.name === name;
+      };
+      return (
+        <React.Fragment>
+          <header className="nav">
+            <div className="nav-inner">
+              <div className="nav-left">
+                <button className="icon-btn" style={{ display: 'none' }} aria-label="menu"
+                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+                  <Icon name={mobileMenuOpen ? 'close' : 'menu'} />
+                </button>
+                <a className={`nav-link ${isActive('shop') ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); navigate('/shop'); }} href="#/shop">Shop</a>
+                <a className={`nav-link ${isActive('shop', 'tops') ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); navigate('/shop/tops'); }} href="#/shop/tops">Tops</a>
+                <a className={`nav-link ${isActive('shop', 'bottoms') ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); navigate('/shop/bottoms'); }} href="#/shop/bottoms">Bottoms</a>
+                <a className={`nav-link ${isActive('shop', 'outerwear') ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); navigate('/shop/outerwear'); }} href="#/shop/outerwear">Outerwear</a>
+              </div>
+
+              <a className="brand" onClick={(e) => { e.preventDefault(); navigate('/'); }} href="#/">
+                <span className="brand-mark"></span>
+                KARA
+              </a>
+
+              <div className="nav-right">
+                <button className="icon-btn" aria-label="search" onClick={() => setSearchOpen(true)}>
+                  <Icon name="search" />
+                </button>
+                <button className="icon-btn" aria-label="account" onClick={() => navigate('/account')}>
+                  <Icon name="user" />
+                </button>
+                <button className="icon-btn" style={{ position: 'relative' }} aria-label="cart" onClick={() => setDrawerOpen(true)}>
+                  <Icon name="bag" />
+                  {cartCount > 0 && <span className="nav-cart-count">{cartCount}</span>}
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {/* Mobile menu shown only on small screens via media query in JS-controlled state */}
+          <MobileMenu />
+        </React.Fragment>
+      );
+    }
+
+    function MobileMenu() {
+      const { mobileMenuOpen, setMobileMenuOpen, navigate } = useStore();
+      if (!mobileMenuOpen) return null;
+      const go = (path) => { navigate(path); setMobileMenuOpen(false); };
+      return (
+        <div className="mobile-menu">
+          <a onClick={() => go('/shop')}>Ver tudo</a>
+          <a onClick={() => go('/shop/tops')}>Tops</a>
+          <a onClick={() => go('/shop/bottoms')}>Bottoms</a>
+          <a onClick={() => go('/shop/outerwear')}>Outerwear</a>
+          <a onClick={() => go('/shop/accessories')}>Accessories</a>
+          <a onClick={() => go('/account')}>Account</a>
+          <a onClick={() => go('/contact')}>Contact</a>
+        </div>
+      );
+    }
+
+    function MiniCart() {
+      const { drawerOpen, setDrawerOpen, cart, updateQty, removeFromCart, cartSubtotal, navigate, products: PRODUCTS } = useStore();
+      return (
+        <React.Fragment>
+          <div className={`drawer-bg ${drawerOpen ? 'open' : ''}`} onClick={() => setDrawerOpen(false)}></div>
+          <aside className={`drawer ${drawerOpen ? 'open' : ''}`} aria-hidden={!drawerOpen}>
+            <div className="drawer-head">
+              <div style={{ display: 'flex', alignPeÃ§as: 'baseline', gap: 12 }}>
+                <span className="t-caps">Cart</span>
+                <span className="t-mono" style={{ color: 'var(--muted)' }}>
+                  [{String(cart.reduce((s, it) => s + it.qty, 0)).padStart(2, '0')}]
+                </span>
+              </div>
+              <button className="icon-btn" onClick={() => setDrawerOpen(false)} aria-label="close"><Icon name="close" /></button>
+            </div>
+            <div className="drawer-body">
+              {cart.length === 0 && (
+                <div className="empty" style={{ padding: '80px 24px' }}>
+                  <Icon name="bag" size={28} stroke={1.2} />
+                  <div className="t-h3" style={{ marginTop: 8 }}>O carrinho estÃ¡ vazio</div>
+                  <div className="t-body-sm" style={{ maxWidth: 280 }}>Adiciona algumas peÃ§as e voltam a aparecer aqui.</div>
+                  <button className="btn btn-primary" onClick={() => { setDrawerOpen(false); navigate('/shop'); }}>Explorar loja</button>
+                </div>
+              )}
+              {cart.map(it => {
+                const p = PRODUCTS.find(pp => pp.id === it.productId);
+                if (!p) return null;
+                const color = p.colors.find(c => c.id === it.color) || p.colors[0];
+                return (
+                  <div key={it.id} className="cart-row" style={{ padding: '20px 24px' }}>
+                    <div className="cart-thumb">
+                      <img src={p.images[0]} alt={p.name} />
+                    </div>
+                    <div className="cart-info">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                        <span className="name">{p.name}</span>
+                        <span className="name">â‚¬{(p.price * it.qty).toFixed(0)}</span>
+                      </div>
+                      <span className="meta">{color.label} Â· {it.size} Â· {p.sku}</span>
+                      <div className="ctrls">
+                        <div className="qty">
+                          <button onClick={() => updateQty(it.id, it.qty - 1)} aria-label="decrease">
+                            <Icon name="minus" size={12} />
+                          </button>
+                          <span className="v">{it.qty}</span>
+                          <button onClick={() => updateQty(it.id, it.qty + 1)} aria-label="increase">
+                            <Icon name="plus" size={12} />
+                          </button>
+                        </div>
+                        <button className="btn-ghost" style={{ background: 'transparent', border: 0, color: 'var(--muted)', fontSize: 12, padding: 0 }}
+                          onClick={() => removeFromCart(it.id)}>Remover</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {cart.length > 0 && (
+              <div className="drawer-foot">
+                <div className="summary-row">
+                  <span className="lbl">Subtotal</span>
+                  <span>â‚¬{cartSubtotal.toFixed(2)}</span>
+                </div>
+                <div className="summary-row" style={{ paddingBottom: 16 }}>
+                  <span className="lbl t-mono-sm">Envio + impostos calculados no checkout</span>
+                </div>
+                <button className="btn btn-primary btn-block btn-lg" onClick={() => { setDrawerOpen(false); navigate('/checkout'); }}>
+                  Checkout Â· â‚¬{cartSubtotal.toFixed(2)}
+                </button>
+                <button className="btn btn-ghost btn-block" style={{ marginTop: 8 }} onClick={() => { setDrawerOpen(false); navigate('/cart'); }}>
+                  Ver carrinho completo
+                </button>
+              </div>
+            )}
+          </aside>
+        </React.Fragment>
+      );
+    }
+
+    function SearchOverlay() {
+      const { searchOpen, setSearchOpen, navigate, products: PRODUCTS } = useStore();
+      const [q, setQ] = useState('');
+      const inputRef = useRef(null);
+      useEffect(() => {
+        if (searchOpen) {
+          setTimeout(() => inputRef.current?.focus(), 50);
+        } else {
+          setQ('');
+        }
+      }, [searchOpen]);
+
+      const results = useMemo(() => {
+        const t = q.trim().toLowerCase();
+        if (!t) return PRODUCTS.slice(0, 4);
+        return PRODUCTS.filter(p =>
+          p.name.toLowerCase().includes(t) ||
+          p.type.toLowerCase().includes(t) ||
+          p.category.toLowerCase().includes(t) ||
+          p.sku.toLowerCase().includes(t)
+        ).slice(0, 8);
+      }, [q]);
+
+      if (!searchOpen) return null;
+
+      const goProduct = (id) => {
+        setSearchOpen(false);
+        navigate(`/product/${id}`);
+      };
+
+      return (
+        <div className={`search-overlay ${searchOpen ? 'open' : ''}`} onClick={(e) => { if (e.target === e.currentTarget) setSearchOpen(false); }}>
+          <div className="search-bar">
+            <Icon name="search" size={20} stroke={1.2} />
+            <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Procurar peÃ§as, categorias, SKU..." />
+            <button className="icon-btn" onClick={() => setSearchOpen(false)} aria-label="close"><Icon name="close" /></button>
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '32px var(--pad-page)' }}>
+            <div style={{ maxWidth: 'var(--container)', margin: '0 auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'baseline', marginBottom: 24 }}>
+                <span className="t-caps muted">{q ? 'Resultados' : 'SugestÃµes'}</span>
+                <span className="t-mono" style={{ color: 'var(--muted)' }}>{String(results.length).padStart(2, '0')} items</span>
+              </div>
+              <div className="plp-grid" style={{ border: '1px solid var(--hairline)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
+                {results.map(p => (
+                  <ProductCard key={p.id} product={p} onClick={() => goProduct(p.id)} />
+                ))}
+              </div>
+              {results.length === 0 && (
+                <div className="empty" style={{ padding: '60px 0' }}>
+                  <div className="t-h3">Sem resultados para "{q}"</div>
+                  <div className="t-body-sm">Tenta outra palavra ou explora o catÃ¡logo completo.</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function ProductCard({ product, onClick }) {
+      const { wishlist, toggleWishlist, navigate } = useStore();
+      const isFav = wishlist.includes(product.id);
+      const handleClick = onClick || (() => navigate(`/product/${product.id}`));
+      return (
+        <div className="pcard" onClick={handleClick}>
+          <div className="pcard-img">
+            {product.tags && product.tags[0] && (
+              <span className="pcard-badge tag">{product.tags[0]}</span>
+            )}
+            <button
+              className={`pcard-fav ${isFav ? 'active' : ''}`}
+              aria-label="wishlist"
+              onClick={(e) => { e.stopPropagation(); toggleWishlist(product.id); }}>
+              <Icon name={isFav ? 'heart-fill' : 'heart'} size={14} stroke={1.5} />
+            </button>
+            <img src={product.images[0]} alt={product.name} loading="lazy" />
+          </div>
+          <div className="pcard-meta">
+            <span className="name">{product.name}</span>
+            <span className="price">â‚¬{product.price}</span>
+            <span className="sku">{product.sku} Â· {product.colors.length} {product.colors.length === 1 ? 'cor' : 'cores'}</span>
+          </div>
+        </div>
+      );
+    }
+
+    function Footer() {
+      const { navigate } = useStore();
+      const link = (path, label) => (
+        <a onClick={(e) => { e.preventDefault(); navigate(path); }} href={`#${path}`}>{label}</a>
+      );
+      return (
+        <footer className="footer">
+          <div className="container">
+            <div className="footer-grid">
+              <div className="footer-col">
+                <div className="brand" style={{ marginBottom: 20 }}>
+                  <span className="brand-mark"></span> KARA
+                </div>
+                <p className="t-body-sm" style={{ maxWidth: 320 }}>
+                  Essenciais arquitetÃ³nicos. ConstruÃ­dos em pequenas sÃ©ries, em Portugal e na Europa.
+                </p>
+                <div style={{ display: 'flex', gap: 8, marginTop: 24 }}>
+                  <button className="icon-btn" aria-label="instagram"><Icon name="instagram" /></button>
+                  <button className="icon-btn" aria-label="email"><Icon name="mail" /></button>
+                </div>
+              </div>
+              <div className="footer-col">
+                <h4>Shop</h4>
+                <ul>
+                  <li>{link('/shop', 'Todos os produtos')}</li>
+                  <li>{link('/shop/tops', 'Tops')}</li>
+                  <li>{link('/shop/bottoms', 'Bottoms')}</li>
+                  <li>{link('/shop/outerwear', 'Outerwear')}</li>
+                  <li>{link('/shop/accessories', 'Accessories')}</li>
+                </ul>
+              </div>
+              <div className="footer-col">
+                <h4>Suporte</h4>
+                <ul>
+                  <li>{link('/contact', 'Contacto')}</li>
+                  <li><a>Envios</a></li>
+                  <li><a>DevoluÃ§Ãµes</a></li>
+                  <li><a>Tabela de tamanhos</a></li>
+                  <li><a>FAQ</a></li>
+                </ul>
+              </div>
+              <div className="footer-col">
+                <h4>Empresa</h4>
+                <ul>
+                  <li><a>Sobre nÃ³s</a></li>
+                  <li><a>Materiais</a></li>
+                  <li><a>Sustentabilidade</a></li>
+                  <li><a>Imprensa</a></li>
+                  <li><a>Carreiras</a></li>
+                </ul>
+              </div>
+            </div>
+            <div className="footer-bottom">
+              <span>Â© 2026 KARA Â· Lisboa, PT</span>
+              <span>EN Â· â‚¬EUR</span>
+            </div>
+          </div>
+        </footer>
+      );
+    }
+
+    function Toast() {
+      const { toast } = useStore();
+      return <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>;
+    }
+
+    function SupabaseBanner() {
+      const [visible, setVisible] = useState(!window.__SUPABASE_CONFIGURED__);
+      if (!visible) return null;
+      return (
+        <div style={{
+          position: 'fixed', bottom: 72, left: '50%', transform: 'translateX(-50%)',
+          background: 'var(--surface-container-high)', border: '1px solid var(--hairline-strong)',
+          borderRadius: 'var(--r)', padding: '10px 16px', zIndex: 99,
+          display: 'flex', alignItems: 'center', gap: 12, fontSize: 12,
+          color: 'var(--on-surface-variant)', whiteSpace: 'nowrap', maxWidth: '90vw',
+          flexWrap: 'wrap', justifyContent: 'center',
+        }}>
+          <span className="t-mono" style={{ color: 'var(--muted)' }}>SUPABASE</span>
+          <span>Modo demonstraÃ§Ã£o â€” configura o URL e a chave para ligar Ã  BD</span>
+          <button onClick={() => setVisible(false)} style={{
+            background: 'transparent', border: 0, color: 'var(--muted)', cursor: 'pointer', fontSize: 14,
+          }}>âœ•</button>
+        </div>
+      );
+    }
+
+
+
+
+
+    function PageHome() {
+      const { navigate } = useStore();
+      const featured = PRODUCTS.slice(0, 6);
+      const newArrivals = PRODUCTS.filter(p => p.tags && p.tags.includes('Novo'));
+
+      return (
+        <div className="page">
+          {/* HERO */}
+          <section className="hero">
+            <div className="hero-grid">
+              <div className="hero-copy container" style={{ paddingLeft: 'var(--pad-page)', paddingRight: 'var(--pad-page)', maxWidth: 'none' }}>
+                <div>
+                  <div className="t-mono" style={{ color: 'var(--muted)', marginBottom: 24 }}>
+                    SS26 / EDIÃ‡ÃƒO 04
+                  </div>
+                  <h1 className="t-display" style={{ margin: 0, marginBottom: 24 }}>
+                    Feito para<br />durar.
+                  </h1>
+                  <p className="t-body" style={{ maxWidth: 440, color: 'var(--on-surface-variant)' }}>
+                    Essenciais construÃ­dos em pequenas sÃ©ries, com materiais auditados
+                    e construÃ§Ãµes que envelhecem bem. Sem coleÃ§Ãµes, sem temporadas.
+                  </p>
+                </div>
+                <div>
+                  <div style={{ display: 'flex', gap: 12, marginBottom: 40, flexWrap: 'wrap' }}>
+                    <button className="btn btn-primary btn-lg" onClick={() => navigate('/shop')}>
+                      Ver coleÃ§Ã£o <Icon name="arrow-r" size={14} />
+                    </button>
+                    <button className="btn btn-secondary btn-lg" onClick={() => navigate('/shop/outerwear')}>
+                      Outerwear
+                    </button>
+                  </div>
+                  <div className="hero-meta">
+                    <div>
+                      <span className="lbl">EdiÃ§Ã£o</span>
+                      <span className="val">04 / 2026</span>
+                    </div>
+                    <div>
+                      <span className="lbl">ProduÃ§Ã£o</span>
+                      <span className="val">Portugal Â· IT Â· JP</span>
+                    </div>
+                    <div>
+                      <span className="lbl">PeÃ§as</span>
+                      <span className="val">12 SKUs</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="hero-img">
+                <img src="https://images.unsplash.com/photo-1604176354204-9268737828e4?w=1400&q=85&auto=format&fit=crop" alt="" />
+              </div>
+            </div>
+          </section>
+
+          {/* MARQUEE â€” technical readout */}
+          <div className="marquee">
+            <div className="marquee-track">
+              <span>ENVIO GRÃTIS ACIMA DE â‚¬120 <span className="dot">Â·</span></span>
+              <span>DEVOLUÃ‡Ã•ES EM 30 DIAS <span className="dot">Â·</span></span>
+              <span>FABRICADO NA EU + JP <span className="dot">Â·</span></span>
+              <span>NOVO: TYPE-04 FIELD COAT <span className="dot">Â·</span></span>
+              <span>ENVIO GRÃTIS ACIMA DE â‚¬120 <span className="dot">Â·</span></span>
+              <span>DEVOLUÃ‡Ã•ES EM 30 DIAS <span className="dot">Â·</span></span>
+              <span>FABRICADO NA EU + JP <span className="dot">Â·</span></span>
+              <span>NOVO: TYPE-04 FIELD COAT <span className="dot">Â·</span></span>
+            </div>
+          </div>
+
+          {/* FEATURED â€” Index 01 */}
+          <section className="section-tight">
+            <div className="container">
+              <div className="sec-head">
+                <div className="left">
+                  <span className="t-mono idx">[01]</span>
+                  <h2 className="t-h1" style={{ margin: 0 }}>O Ãndice</h2>
+                </div>
+                <a className="t-caps muted" style={{ cursor: 'pointer' }}
+                  onClick={() => navigate('/shop')}>
+                  Ver todos <Icon name="arrow-r" size={12} stroke={1.5} style={{ verticalAlign: 'middle', marginLeft: 4 }} />
+                </a>
+              </div>
+              <div className="plp-grid" style={{ border: '1px solid var(--hairline)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
+                {featured.map(p => <ProductCard key={p.id} product={p} />)}
+              </div>
+            </div>
+          </section>
+
+          {/* COLLECTIONS â€” split tiles */}
+          <section className="section-tight">
+            <div className="container">
+              <div className="sec-head">
+                <div className="left">
+                  <span className="t-mono idx">[02]</span>
+                  <h2 className="t-h1" style={{ margin: 0 }}>Categorias</h2>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }} className="cat-tiles">
+                <div className="collection-tile" onClick={() => navigate('/shop/outerwear')}>
+                  <img src="https://images.unsplash.com/photo-1539533018447-63fcce2678e3?w=1400&q=85&auto=format&fit=crop" alt="" />
+                  <div className="label">
+                    <div>
+                      <div className="t-caps muted" style={{ marginBottom: 6 }}>OUTERWEAR Â· 04 STYLES</div>
+                      <div className="t-h2" style={{ color: '#fff', margin: 0 }}>Casacos & Coletes</div>
+                    </div>
+                    <Icon name="arrow-r" size={20} />
+                  </div>
+                </div>
+                <div className="collection-tile" onClick={() => navigate('/shop/bottoms')}>
+                  <img src="https://images.unsplash.com/photo-1542272604-787c3835535d?w=1400&q=85&auto=format&fit=crop" alt="" />
+                  <div className="label">
+                    <div>
+                      <div className="t-caps muted" style={{ marginBottom: 6 }}>BOTTOMS Â· 03 STYLES</div>
+                      <div className="t-h2" style={{ color: '#fff', margin: 0 }}>CalÃ§as & Ganga</div>
+                    </div>
+                    <Icon name="arrow-r" size={20} />
+                  </div>
+                </div>
+              </div>
+              <style>{`
+            @media (max-width: 720px) {
+              .cat-tiles { grid-template-columns: 1fr !important; }
+            }
+          `}</style>
+            </div>
+          </section>
+
+          {/* MANIFESTO â€” large type spec block */}
+          <section className="section-tight">
+            <div className="container">
+              <div style={{ borderTop: '1px solid var(--hairline)', borderBottom: '1px solid var(--hairline)', padding: '64px 0' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 32 }} className="manifesto-row">
+                  <div>
+                    <div className="t-caps muted">[03]</div>
+                    <div className="t-mono" style={{ marginTop: 12, color: 'var(--muted)' }}>MANIFESTO</div>
+                  </div>
+                  <div>
+                    <p className="t-h1" style={{ margin: 0, maxWidth: 880, fontWeight: 500 }}>
+                      Desenhamos peÃ§as para uso diÃ¡rio, nÃ£o para mudanÃ§a diÃ¡ria.<br />
+                      <span style={{ color: 'var(--muted)' }}>Um padrÃ£o, refinado ao longo de anos. FÃ¡bricas auditadas. Garantias longas. ReparaÃ§Ãµes bem-vindas.</span>
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 32, marginTop: 56, paddingTop: 32, borderTop: '1px solid var(--hairline)' }} className="stats-grid">
+                      <Stat n="04" l="ateliers parceiros" />
+                      <Stat n="08yr" l="de garantia" />
+                      <Stat n="100%" l="materiais rastreados" />
+                      <Stat n="0" l="promoÃ§Ãµes / saldos" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <style>{`
+            @media (max-width: 720px) {
+              .manifesto-row { grid-template-columns: 1fr !important; }
+              .stats-grid { grid-template-columns: 1fr 1fr !important; }
+            }
+          `}</style>
+            </div>
+          </section>
+
+          {/* NEW ARRIVALS */}
+          <section className="section-tight">
+            <div className="container">
+              <div className="sec-head">
+                <div className="left">
+                  <span className="t-mono idx">[04]</span>
+                  <h2 className="t-h1" style={{ margin: 0 }}>Novidades</h2>
+                </div>
+                <a className="t-caps muted" style={{ cursor: 'pointer' }}
+                  onClick={() => navigate('/shop')}>
+                  Ver todos <Icon name="arrow-r" size={12} stroke={1.5} style={{ verticalAlign: 'middle', marginLeft: 4 }} />
+                </a>
+              </div>
+              <div className="plp-grid" style={{ border: '1px solid var(--hairline)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
+                {newArrivals.map(p => <ProductCard key={p.id} product={p} />)}
+              </div>
+            </div>
+          </section>
+
+          {/* SERVICES â€” strip of 4 */}
+          <section style={{ borderTop: '1px solid var(--hairline)', borderBottom: '1px solid var(--hairline)', marginTop: 40 }}>
+            <div className="container">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, background: 'var(--hairline)', margin: '0 calc(var(--pad-page) * -1)' }} className="svc-grid">
+                <Service icon="truck" t="Envio neutro" s="Carbono compensado em todas as encomendas." />
+                <Service icon="rotate" t="30 dias" s="Troca ou devoluÃ§Ã£o gratuita em 30 dias." />
+                <Service icon="shield" t="Garantia 8 anos" s="ReparaÃ§Ãµes cobertas em peÃ§as construÃ­das." />
+                <Service icon="leaf" t="Materiais auditados" s="Cadeia de fornecimento totalmente rastreada." />
+              </div>
+              <style>{`
+            @media (max-width: 720px) {
+              .svc-grid { grid-template-columns: 1fr 1fr !important; }
+            }
+          `}</style>
+            </div>
+          </section>
+        </div>
+      );
+    }
+
+    function Stat({ n, l }) {
+      return (
+        <div>
+          <div className="t-h2" style={{ margin: 0, marginBottom: 6 }}>{n}</div>
+          <div className="t-caps muted">{l}</div>
+        </div>
+      );
+    }
+
+    function Service({ icon, t, s }) {
+      return (
+        <div style={{ background: 'var(--background)', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Icon name={icon} size={22} stroke={1.4} />
+          <div className="t-caps">{t}</div>
+          <div className="t-body-sm">{s}</div>
+        </div>
+      );
+    }
+
+
+
+
+
+    function PageShop({ category }) {
+      const { navigate, products: PRODUCTS } = useStore();
+      const [color, setColor] = useState(null);
+      const [size, setSize] = useState(null);
+      const [priceMax, setPriceMax] = useState(500);
+      const [sort, setSort] = useState('featured');
+      const [filtersOpen, setFiltersOpen] = useState(false);
+
+      const cat = category || 'all';
+      const catLabel = cat === 'all' ? 'Todos os produtos'
+        : cat.charAt(0).toUpperCase() + cat.slice(1);
+
+      const filtered = useMemo(() => {
+        let list = PRODUCTS.slice();
+        if (cat !== 'all') list = list.filter(p => p.category === cat);
+        if (color) list = list.filter(p => p.colors.some(c => c.id === color));
+        if (size) list = list.filter(p => p.available.includes(size));
+        list = list.filter(p => p.price <= priceMax);
+
+        switch (sort) {
+          case 'price-asc': list.sort((a, b) => a.price - b.price); break;
+          case 'price-desc': list.sort((a, b) => b.price - a.price); break;
+          case 'new': list.sort((a, b) => (b.tags?.includes('Novo') ? 1 : 0) - (a.tags?.includes('Novo') ? 1 : 0)); break;
+          default: break;
+        }
+        return list;
+      }, [cat, color, size, priceMax, sort]);
+
+      const sizes = useMemo(() => {
+        const s = new Set();
+        PRODUCTS.forEach(p => { if (cat === 'all' || p.category === cat) p.sizes.forEach(sz => s.add(sz)); });
+        return Array.from(s);
+      }, [cat]);
+
+      return (
+        <div className="page">
+          {/* HEAD */}
+          <div className="container">
+            <div className="plp-head">
+              <div className="plp-crumb">
+                <a onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>HOME</a>
+                <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
+                <a onClick={() => navigate('/shop')} style={{ cursor: 'pointer' }}>SHOP</a>
+                {cat !== 'all' && (
+                  <React.Fragment>
+                    <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
+                    <span style={{ color: '#fff' }}>{catLabel.toUpperCase()}</span>
+                  </React.Fragment>
+                )}
+              </div>
+              <div className="row">
+                <div>
+                  <h1 className="t-h1" style={{ margin: 0 }}>{catLabel}</h1>
+                  <p className="t-body-sm" style={{ marginTop: 8, maxWidth: 520 }}>
+                    Pequenas sÃ©ries em materiais auditados. ConstruÃ­dos para durar dÃ©cadas.
+                  </p>
+                </div>
+                <span className="t-mono" style={{ color: 'var(--muted)' }}>
+                  [{String(filtered.length).padStart(2, '0')}/{String(PRODUCTS.filter(p => cat === 'all' || p.category === cat).length).padStart(2, '0')}]
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* LAYOUT */}
+          <div className="container">
+            <div className="plp-layout">
+              {/* FILTERS */}
+              <aside className="plp-filters">
+                <div className="filter-group">
+                  <h4>Categoria</h4>
+                  <div className="filter-list">
+                    {COLLECTIONS.map(c => (
+                      <a key={c.id} className="check"
+                        onClick={() => navigate(c.id === 'all' ? '/shop' : `/shop/${c.id}`)}
+                        style={{ cursor: 'pointer', color: cat === c.id ? '#fff' : 'var(--on-surface-variant)' }}>
+                        <span style={{ fontSize: 13 }}>{c.label}</span>
+                        <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>
+                          {c.id === 'all' ? PRODUCTS.length : PRODUCTS.filter(p => p.category === c.id).length}
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="filter-group">
+                  <h4>Cor</h4>
+                  <div className="swatch-row">
+                    {ALL_COLORS.map(c => (
+                      <button key={c.id} className={`swatch ${color === c.id ? 'active' : ''}`}
+                        style={{ background: c.hex }}
+                        onClick={() => setColor(color === c.id ? null : c.id)}
+                        aria-label={c.label}
+                        title={c.label} />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="filter-group">
+                  <h4>Tamanho</h4>
+                  <div className="size-row">
+                    {sizes.map(sz => (
+                      <button key={sz} className={`size-chip ${size === sz ? 'active' : ''}`}
+                        onClick={() => setSize(size === sz ? null : sz)}>
+                        {sz}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="filter-group">
+                  <h4>PreÃ§o â€” mÃ¡x. â‚¬{priceMax}</h4>
+                  <input type="range" min={50} max={500} step={10} value={priceMax}
+                    onChange={(e) => setPriceMax(Number(e.target.value))}
+                    style={{ width: '100%' }} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', marginTop: 6 }}>
+                    <span>â‚¬50</span><span>â‚¬500</span>
+                  </div>
+                </div>
+
+                {(color || size || priceMax < 500) && (
+                  <button className="btn btn-secondary btn-block btn-sm" style={{ marginTop: 24 }}
+                    onClick={() => { setColor(null); setSize(null); setPriceMax(500); }}>
+                    Limpar filtros
+                  </button>
+                )}
+              </aside>
+
+              {/* MAIN */}
+              <div className="plp-main">
+                <div className="plp-toolbar">
+                  <span className="count">[{String(filtered.length).padStart(2, '0')}] resultados</span>
+                  <div style={{ display: 'flex', gap: 12, alignPeÃ§as: 'center' }}>
+                    <span className="t-mono" style={{ color: 'var(--muted)', fontSize: 10 }}>ORDENAR</span>
+                    <select className="select" value={sort} onChange={(e) => setSort(e.target.value)}>
+                      <option value="featured">Destaque</option>
+                      <option value="new">Novidades</option>
+                      <option value="price-asc">PreÃ§o â€” crescente</option>
+                      <option value="price-desc">PreÃ§o â€” decrescente</option>
+                    </select>
+                  </div>
+                </div>
+
+                {filtered.length === 0 ? (
+                  <div className="empty" style={{ padding: 80 }}>
+                    <div className="t-h3">Sem resultados</div>
+                    <div className="t-body-sm">Ajusta os filtros para ver mais peÃ§as.</div>
+                    <button className="btn btn-secondary"
+                      onClick={() => { setColor(null); setSize(null); setPriceMax(500); }}>
+                      Limpar filtros
+                    </button>
+                  </div>
+                ) : (
+                  <div className="plp-grid">
+                    {filtered.map(p => <ProductCard key={p.id} product={p} />)}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+
+
+
+
+    function PageProduct({ productId }) {
+      const { navigate, addToCart, wishlist, toggleWishlist } = useStore();
+      const product = PRODUCTS.find(p => p.id === productId) || PRODUCTS[0];
+      const [colorIdx, setColorIdx] = useState(0);
+      const [size, setSize] = useState(null);
+      const [openSection, setOpenSection] = useState('details');
+      const [imgIdx, setImgIdx] = useState(0);
+
+      useEffect(() => {
+        setColorIdx(0);
+        setSize(null);
+        setImgIdx(0);
+      }, [productId]);
+
+      const color = product.colors[colorIdx];
+      const isFav = wishlist.includes(product.id);
+
+      const related = PRODUCTS.filter(p => p.category === product.category && p.id !== product.id).slice(0, 4);
+
+      const handleAdd = () => {
+        if (!size) return;
+        addToCart(product.id, color.id, size, 1);
+      };
+
+      const sectionToggle = (key) => setOpenSection(openSection === key ? null : key);
+
+      return (
+        <div className="page">
+          <div className="container">
+            <div className="plp-crumb" style={{ padding: '24px 0', borderBottom: '1px solid var(--hairline)' }}>
+              <a onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>HOME</a>
+              <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
+              <a onClick={() => navigate('/shop')} style={{ cursor: 'pointer' }}>SHOP</a>
+              <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
+              <a onClick={() => navigate(`/shop/${product.category}`)} style={{ cursor: 'pointer' }}>
+                {product.category.toUpperCase()}
+              </a>
+              <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
+              <span style={{ color: '#fff' }}>{product.name.toUpperCase()}</span>
+            </div>
+          </div>
+
+          <div className="container">
+            <div className="pdp">
+              {/* GALLERY */}
+              <div className="pdp-gallery">
+                {product.images.map((src, i) => (
+                  <div key={i} className="ph">
+                    <img src={src} alt={`${product.name} ${i + 1}`} />
+                  </div>
+                ))}
+              </div>
+
+              {/* INFO */}
+              <div className="pdp-info">
+                <div className="pdp-head">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'flex-start', gap: 16 }}>
+                    <div>
+                      <div className="t-mono" style={{ color: 'var(--muted)', marginBottom: 8 }}>
+                        {product.sku}
+                      </div>
+                      <h1 className="t-h1" style={{ margin: 0 }}>{product.name}</h1>
+                    </div>
+                    <button className={`icon-btn`} onClick={() => toggleWishlist(product.id)} aria-label="wishlist"
+                      style={{ borderColor: isFav ? '#fff' : 'var(--hairline-strong)', color: '#fff' }}>
+                      <Icon name={isFav ? 'heart-fill' : 'heart'} />
+                    </button>
+                  </div>
+                  <div className="t-h2" style={{ marginTop: 8 }}>â‚¬{product.price}</div>
+                  <p className="t-body-sm" style={{ marginTop: 4 }}>
+                    {product.description}
+                  </p>
+                  {product.tags && product.tags.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                      {product.tags.map(t => <span key={t} className="tag">{t}</span>)}
+                    </div>
+                  )}
+                </div>
+
+                {/* COLOR */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <span className="t-caps muted">Cor</span>
+                    <span className="t-body-sm">{color.label}</span>
+                  </div>
+                  <div className="swatch-row">
+                    {product.colors.map((c, i) => (
+                      <button key={c.id} className={`swatch ${colorIdx === i ? 'active' : ''}`}
+                        style={{ background: c.hex }}
+                        onClick={() => setColorIdx(i)}
+                        aria-label={c.label}
+                        title={c.label} />
+                    ))}
+                  </div>
+                </div>
+
+                {/* SIZE */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <span className="t-caps muted">Tamanho</span>
+                    <a className="t-body-sm muted" style={{ cursor: 'pointer' }}>Tabela de tamanhos</a>
+                  </div>
+                  <div className="size-row">
+                    {product.sizes.map(sz => {
+                      const avail = product.available.includes(sz);
+                      return (
+                        <button key={sz} className={`size-chip ${size === sz ? 'active' : ''}`}
+                          disabled={!avail}
+                          onClick={() => setSize(sz)}>
+                          {sz}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* CTA */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <button className="btn btn-primary btn-lg btn-block" onClick={handleAdd} disabled={!size}>
+                    {size ? `Adicionar â€” â‚¬${product.price}` : 'Seleciona um tamanho'}
+                  </button>
+                  <div style={{ display: 'flex', gap: 12, alignPeÃ§as: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 12, marginTop: 4 }}>
+                    <Icon name="truck" size={14} stroke={1.4} />
+                    <span>Envio gratuito acima de â‚¬120 Â· DevoluÃ§Ãµes em 30 dias</span>
+                  </div>
+                </div>
+
+                {/* SPECS / SECTIONS */}
+                <div>
+                  <DisclosureRow open={openSection === 'details'} onToggle={() => sectionToggle('details')} title="Detalhes">
+                    <div>
+                      <PdpSpecRow lbl="Tipo" val={product.type} />
+                      <PdpSpecRow lbl="Material" val={product.materials.join(', ')} />
+                      <PdpSpecRow lbl="Peso" val={product.weight} />
+                      <PdpSpecRow lbl="Origem" val={product.origin} />
+                      <PdpSpecRow lbl="SKU" val={product.sku} mono />
+                    </div>
+                  </DisclosureRow>
+                  <DisclosureRow open={openSection === 'care'} onToggle={() => sectionToggle('care')} title="Cuidados">
+                    <p className="t-body-sm" style={{ margin: 0 }}>
+                      Lavar a 30Â°C com peÃ§as semelhantes. NÃ£o usar lixÃ­via. Secar Ã  sombra. Engomar a temperatura mÃ©dia se necessÃ¡rio.
+                    </p>
+                  </DisclosureRow>
+                  <DisclosureRow open={openSection === 'ship'} onToggle={() => sectionToggle('ship')} title="Envio & devoluÃ§Ãµes">
+                    <p className="t-body-sm" style={{ margin: 0 }}>
+                      Envio standard 3â€“5 dias Ãºteis (â‚¬4,95) ou express 1â€“2 dias Ãºteis (â‚¬9,95). GrÃ¡tis acima de â‚¬120. DevoluÃ§Ãµes gratuitas em 30 dias.
+                    </p>
+                  </DisclosureRow>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* RELATED */}
+          <section className="section-tight">
+            <div className="container">
+              <div className="sec-head">
+                <div className="left">
+                  <span className="t-mono idx">[REL]</span>
+                  <h2 className="t-h2" style={{ margin: 0 }}>Relacionados</h2>
+                </div>
+              </div>
+              <div className="plp-grid" style={{ border: '1px solid var(--hairline)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
+                {related.map(p => <ProductCard key={p.id} product={p} />)}
+              </div>
+            </div>
+          </section>
+        </div>
+      );
+    }
+
+    function PdpSpecRow({ lbl, val, mono }) {
+      return (
+        <div className="pdp-feature-row">
+          <span className="lbl">{lbl}</span>
+          <span style={{ fontFamily: mono ? 'var(--font-mono)' : 'inherit', fontSize: mono ? 12 : 13 }}>{val}</span>
+        </div>
+      );
+    }
+
+    function DisclosureRow({ open, onToggle, title, children }) {
+      return (
+        <div style={{ borderTop: '1px solid var(--hairline)' }}>
+          <button onClick={onToggle}
+            style={{
+              width: '100%', display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'center',
+              background: 'transparent', border: 0, padding: '18px 0', color: '#fff',
+              fontSize: 13, fontWeight: 500, letterSpacing: '0.02em', cursor: 'pointer'
+            }}>
+            <span>{title}</span>
+            <Icon name={open ? 'minus' : 'plus'} size={14} stroke={1.5} />
+          </button>
+          {open && <div style={{ paddingBottom: 20 }}>{children}</div>}
+        </div>
+      );
+    }
+
+
+
+
+
+    function PageCart() {
+      const { cart, updateQty, removeFromCart, cartSubtotal, navigate, products: PRODUCTS } = useStore();
+      const shipping = cartSubtotal >= 120 ? 0 : 4.95;
+      const tax = cartSubtotal * 0.23;
+      const total = cartSubtotal + shipping;
+
+      if (cart.length === 0) {
+        return (
+          <div className="page">
+            <div className="container">
+              <div className="page-head">
+                <div className="crumb">
+                  <a onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>HOME</a>
+                  <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
+                  <span style={{ color: '#fff' }}>CART</span>
+                </div>
+                <h1 className="t-h1" style={{ margin: 0 }}>Carrinho</h1>
+              </div>
+              <div className="empty">
+                <Icon name="bag" size={36} stroke={1.2} />
+                <div className="t-h2" style={{ margin: 0 }}>O teu carrinho estÃ¡ vazio</div>
+                <p className="t-body-sm" style={{ maxWidth: 360, textAlign: 'center' }}>
+                  Explora os essenciais â€” peÃ§as construÃ­das para durar.
+                </p>
+                <button className="btn btn-primary btn-lg" onClick={() => navigate('/shop')}>
+                  Explorar loja
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="page">
+          <div className="container">
+            <div className="page-head">
+              <div className="crumb">
+                <a onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>HOME</a>
+                <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
+                <span style={{ color: '#fff' }}>CART</span>
+              </div>
+              <div style={{ display: 'flex', alignPeÃ§as: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+                <h1 className="t-h1" style={{ margin: 0 }}>Carrinho</h1>
+                <span className="t-mono" style={{ color: 'var(--muted)' }}>
+                  [{String(cart.reduce((s, it) => s + it.qty, 0)).padStart(2, '0')}] artigos
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="container">
+            <div className="cart-layout">
+              <div className="cart-items">
+                {cart.map(it => {
+                  const p = PRODUCTS.find(pp => pp.id === it.productId);
+                  if (!p) return null;
+                  const c = p.colors.find(cc => cc.id === it.color) || p.colors[0];
+                  return (
+                    <div key={it.id} className="cart-row">
+                      <div className="cart-thumb" style={{ cursor: 'pointer' }} onClick={() => navigate(`/product/${p.id}`)}>
+                        <img src={p.images[0]} alt={p.name} />
+                      </div>
+                      <div className="cart-info">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                          <span className="name" style={{ cursor: 'pointer' }} onClick={() => navigate(`/product/${p.id}`)}>{p.name}</span>
+                          <span className="name">â‚¬{(p.price * it.qty).toFixed(2)}</span>
+                        </div>
+                        <span className="meta">{c.label} Â· {it.size} Â· {p.sku}</span>
+                        <div className="ctrls">
+                          <div className="qty">
+                            <button onClick={() => updateQty(it.id, it.qty - 1)} aria-label="decrease"><Icon name="minus" size={12} /></button>
+                            <span className="v">{it.qty}</span>
+                            <button onClick={() => updateQty(it.id, it.qty + 1)} aria-label="increase"><Icon name="plus" size={12} /></button>
+                          </div>
+                          <button style={{ background: 'transparent', border: 0, color: 'var(--muted)', fontSize: 12, padding: 0, cursor: 'pointer' }}
+                            onClick={() => removeFromCart(it.id)}>Remover</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="cart-summary">
+                <div className="t-caps muted" style={{ marginBottom: 20 }}>Resumo</div>
+                <div className="summary-row"><span className="lbl">Subtotal</span><span>â‚¬{cartSubtotal.toFixed(2)}</span></div>
+                <div className="summary-row"><span className="lbl">Envio</span><span>{shipping === 0 ? 'GrÃ¡tis' : `â‚¬${shipping.toFixed(2)}`}</span></div>
+                <div className="summary-row"><span className="lbl">IVA incluÃ­do (23%)</span><span>â‚¬{tax.toFixed(2)}</span></div>
+                <div className="summary-row total"><span>Total</span><span>â‚¬{total.toFixed(2)}</span></div>
+
+                {cartSubtotal < 120 && (
+                  <div style={{
+                    marginTop: 16, padding: 14,
+                    border: '1px solid var(--hairline)', borderRadius: 'var(--r)',
+                    fontSize: 12, color: 'var(--on-surface-variant)'
+                  }}>
+                    <div style={{ marginBottom: 8 }}>Faltam <strong style={{ color: '#fff' }}>â‚¬{(120 - cartSubtotal).toFixed(2)}</strong> para envio gratuito</div>
+                    <div style={{ height: 4, background: 'var(--hairline)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.min(100, (cartSubtotal / 120) * 100)}%`, background: '#fff' }}></div>
+                    </div>
+                  </div>
+                )}
+
+                <button className="btn btn-primary btn-lg btn-block" style={{ marginTop: 24 }}
+                  onClick={() => navigate('/checkout')}>
+                  Checkout Â· â‚¬{total.toFixed(2)} <Icon name="arrow-r" size={14} />
+                </button>
+                <button className="btn btn-ghost btn-block" style={{ marginTop: 8 }} onClick={() => navigate('/shop')}>
+                  Continuar a comprar
+                </button>
+
+                <div style={{ marginTop: 32, paddingTop: 24, borderTop: '1px solid var(--hairline)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <SmallNote icon="truck" t="Envio gratuito acima de â‚¬120" />
+                  <SmallNote icon="rotate" t="DevoluÃ§Ãµes gratuitas em 30 dias" />
+                  <SmallNote icon="shield" t="Garantia de 8 anos em peÃ§as construÃ­das" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function SmallNote({ icon, t }) {
+      return (
+        <div style={{ display: 'flex', alignPeÃ§as: 'center', gap: 10, fontSize: 12, color: 'var(--on-surface-variant)' }}>
+          <Icon name={icon} size={14} stroke={1.4} />
+          <span>{t}</span>
+        </div>
+      );
+    }
+
+
+
+
+
+    function PageCheckout() {
+      const { cart, cartSubtotal, navigate, clearCart, showToast, products: PRODUCTS } = useStore();
+      const [step, setStep] = useState(1);
+      const [shipMethod, setShipMethod] = useState('standard');
+      const [payMethod, setPayMethod] = useState('card');
+      const [done, setDone] = useState(false);
+      const [orderId] = useState(() => 'KR-' + Math.floor(Math.random() * 900000 + 100000));
+
+      const shipObj = SHIPPING.find(s => s.id === shipMethod) || SHIPPING[0];
+      const shipping = cartSubtotal >= 120 && shipMethod === 'standard' ? 0 : shipObj.price;
+      const tax = cartSubtotal * 0.23;
+      const total = cartSubtotal + shipping;
+
+      // Form state
+      const [form, setForm] = useState({
+        email: '', firstName: '', lastName: '',
+        address: '', city: '', postal: '', country: 'Portugal',
+        phone: '',
+        cardNumber: '', cardName: '', expiry: '', cvc: '',
+        notes: '',
+      });
+      const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      // Empty cart redirect
+      useEffect(() => {
+        if (cart.length === 0 && !done) navigate('/cart');
+      }, [cart.length, done, navigate]);
+
+      const placeOrder = async () => {
+        try {
+          if (window.__SUPABASE_CONFIGURED__ && cartId) {
+            await SupabaseAPI.placeOrder({
+              p_cart_id: cartId,
+              p_email: form.email,
+              p_ship_fname: form.firstName,
+              p_ship_lname: form.lastName,
+              p_ship_address: form.address,
+              p_ship_city: form.city,
+              p_ship_postal: form.postal,
+              p_ship_country: form.country,
+              p_ship_phone: form.phone,
+              p_ship_method: shipMethod,
+              p_pay_method: payMethod,
+              p_notes: form.notes,
+            });
+          }
+        } catch (e) { console.warn('Checkout error', e); }
+        setDone(true);
+        showToast('Encomenda confirmada');
+        setTimeout(() => clearCart(), 200);
+      };
+
+      if (done) {
+        return (
+          <div className="page">
+            <div className="container">
+              <div style={{
+                maxWidth: 560, margin: '80px auto', padding: 48,
+                border: '1px solid var(--hairline)', borderRadius: 'var(--r)', textAlign: 'center'
+              }}>
+                <div style={{
+                  width: 56, height: 56, borderRadius: '50%',
+                  border: '1px solid #fff', margin: '0 auto 24px',
+                  display: 'flex', alignPeÃ§as: 'center', justifyContent: 'center'
+                }}>
+                  <Icon name="check" size={24} stroke={1.5} />
+                </div>
+                <div className="t-caps muted" style={{ marginBottom: 16 }}>ENCOMENDA CONFIRMADA</div>
+                <h1 className="t-h1" style={{ margin: 0, marginBottom: 16 }}>Obrigado pela tua encomenda</h1>
+                <p className="t-body-sm" style={{ marginBottom: 32 }}>
+                  Recebemos a tua encomenda e enviÃ¡mos uma confirmaÃ§Ã£o para <strong style={{ color: '#fff' }}>{form.email || 'o teu e-mail'}</strong>.
+                </p>
+                <div style={{
+                  borderTop: '1px solid var(--hairline)', borderBottom: '1px solid var(--hairline)',
+                  padding: '20px 0', margin: '0 0 32px',
+                  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, textAlign: 'left'
+                }}>
+                  <div>
+                    <div className="t-caps muted" style={{ marginBottom: 8 }}>Ref. Encomenda</div>
+                    <div className="t-mono" style={{ fontSize: 13 }}>{orderId}</div>
+                  </div>
+                  <div>
+                    <div className="t-caps muted" style={{ marginBottom: 8 }}>Total</div>
+                    <div className="t-mono" style={{ fontSize: 13 }}>â‚¬{total.toFixed(2)}</div>
+                  </div>
+                </div>
+                <button className="btn btn-primary btn-lg btn-block" onClick={() => navigate('/')}>
+                  Voltar Ã  pÃ¡gina inicial
+                </button>
+                <button className="btn btn-ghost btn-block" style={{ marginTop: 8 }} onClick={() => navigate('/shop')}>
+                  Continuar a comprar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      const validStep1 = form.email && form.firstName && form.lastName && form.address && form.city && form.postal;
+      const validStep2 = !!shipMethod;
+      const validStep3 = payMethod === 'paypal' || (form.cardNumber && form.expiry && form.cvc);
+
+      return (
+        <div className="page">
+          <div className="container">
+            <div className="page-head">
+              <div className="crumb">
+                <a onClick={() => navigate('/cart')} style={{ cursor: 'pointer' }}>CART</a>
+                <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
+                <span style={{ color: '#fff' }}>CHECKOUT</span>
+              </div>
+              <h1 className="t-h1" style={{ margin: 0 }}>Checkout</h1>
+            </div>
+          </div>
+
+          <div className="container">
+            <div className="checkout-layout">
+              <div className="checkout-form">
+                <div className="steps">
+                  <div className={`step ${step === 1 ? 'active' : ''} ${step > 1 ? 'done' : ''}`}>
+                    <span className="n">{step > 1 ? <Icon name="check" size={10} stroke={2} /> : '01'}</span>
+                    <span>Morada</span>
+                  </div>
+                  <div className={`step ${step === 2 ? 'active' : ''} ${step > 2 ? 'done' : ''}`}>
+                    <span className="n">{step > 2 ? <Icon name="check" size={10} stroke={2} /> : '02'}</span>
+                    <span>Envio</span>
+                  </div>
+                  <div className={`step ${step === 3 ? 'active' : ''}`}>
+                    <span className="n">03</span>
+                    <span>Pagamento</span>
+                  </div>
+                </div>
+
+                {step === 1 && (
+                  <div>
+                    <h3 className="t-h3" style={{ margin: 0, marginBottom: 24 }}>InformaÃ§Ã£o de contacto</h3>
+                    <div className="form-grid">
+                      <div className="full">
+                        <label className="field-label">Email</label>
+                        <input className="input" type="email" value={form.email}
+                          onChange={(e) => set('email', e.target.value)} placeholder="tu@email.com" />
+                      </div>
+                      <div>
+                        <label className="field-label">Primeiro nome</label>
+                        <input className="input" value={form.firstName} onChange={(e) => set('firstName', e.target.value)} />
+                      </div>
+                      <div>
+                        <label className="field-label">Apelido</label>
+                        <input className="input" value={form.lastName} onChange={(e) => set('lastName', e.target.value)} />
+                      </div>
+                      <div className="full">
+                        <label className="field-label">Morada</label>
+                        <input className="input" value={form.address} onChange={(e) => set('address', e.target.value)}
+                          placeholder="Rua, nÃºmero, andar" />
+                      </div>
+                      <div>
+                        <label className="field-label">Cidade</label>
+                        <input className="input" value={form.city} onChange={(e) => set('city', e.target.value)} />
+                      </div>
+                      <div>
+                        <label className="field-label">CÃ³digo postal</label>
+                        <input className="input" value={form.postal} onChange={(e) => set('postal', e.target.value)} placeholder="0000-000" />
+                      </div>
+                      <div>
+                        <label className="field-label">PaÃ­s</label>
+                        <select className="select" value={form.country} onChange={(e) => set('country', e.target.value)}>
+                          <option>Portugal</option><option>Espanha</option><option>FranÃ§a</option>
+                          <option>ItÃ¡lia</option><option>Alemanha</option><option>Reino Unido</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="field-label">Telefone</label>
+                        <input className="input" value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="+351..." />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 32 }}>
+                      <button className="btn btn-ghost" onClick={() => navigate('/cart')}>
+                        <Icon name="arrow-l" size={14} /> Voltar ao carrinho
+                      </button>
+                      <button className="btn btn-primary btn-lg" disabled={!validStep1} onClick={() => setStep(2)}>
+                        Continuar para envio <Icon name="arrow-r" size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {step === 2 && (
+                  <div>
+                    <h3 className="t-h3" style={{ margin: 0, marginBottom: 24 }}>MÃ©todo de envio</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {SHIPPING.map(s => (
+                        <label key={s.id} className={`shipping-option ${shipMethod === s.id ? 'active' : ''}`}>
+                          <input type="radio" name="ship" hidden checked={shipMethod === s.id} onChange={() => setShipMethod(s.id)} />
+                          <span className={`radio ${shipMethod === s.id ? 'active' : ''}`} style={{
+                            width: 18, height: 18, borderRadius: '50%',
+                            border: `1px solid ${shipMethod === s.id ? '#fff' : 'var(--hairline-strong)'}`,
+                            display: 'inline-flex', alignPeÃ§as: 'center', justifyContent: 'center',
+                          }}>
+                            {shipMethod === s.id && <span style={{ width: 8, height: 8, background: '#fff', borderRadius: '50%' }}></span>}
+                          </span>
+                          <div>
+                            <div style={{ fontSize: 14, fontWeight: 500 }}>{s.label}</div>
+                            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{s.sub}</div>
+                          </div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+                            {s.price === 0 || (cartSubtotal >= 120 && s.id === 'standard') ? 'GrÃ¡tis' : `â‚¬${s.price.toFixed(2)}`}
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: 24 }}>
+                      <label className="field-label">Notas (opcional)</label>
+                      <textarea className="textarea" value={form.notes} onChange={(e) => set('notes', e.target.value)}
+                        placeholder="InstruÃ§Ãµes de entrega, presente, etc."></textarea>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 32 }}>
+                      <button className="btn btn-ghost" onClick={() => setStep(1)}>
+                        <Icon name="arrow-l" size={14} /> Voltar
+                      </button>
+                      <button className="btn btn-primary btn-lg" disabled={!validStep2} onClick={() => setStep(3)}>
+                        Continuar para pagamento <Icon name="arrow-r" size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {step === 3 && (
+                  <div>
+                    <h3 className="t-h3" style={{ margin: 0, marginBottom: 24 }}>Pagamento</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
+                      <label className={`payment-method ${payMethod === 'card' ? 'active' : ''}`}>
+                        <input type="radio" name="pay" hidden checked={payMethod === 'card'} onChange={() => setPayMethod('card')} />
+                        <span className="radio"></span>
+                        <span style={{ fontSize: 14, fontWeight: 500, flex: 1 }}>CartÃ£o de crÃ©dito / dÃ©bito</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>VISA Â· MC Â· AMEX</span>
+                      </label>
+                      <label className={`payment-method ${payMethod === 'paypal' ? 'active' : ''}`}>
+                        <input type="radio" name="pay" hidden checked={payMethod === 'paypal'} onChange={() => setPayMethod('paypal')} />
+                        <span className="radio"></span>
+                        <span style={{ fontSize: 14, fontWeight: 500, flex: 1 }}>PayPal</span>
+                      </label>
+                      <label className={`payment-method ${payMethod === 'mbway' ? 'active' : ''}`}>
+                        <input type="radio" name="pay" hidden checked={payMethod === 'mbway'} onChange={() => setPayMethod('mbway')} />
+                        <span className="radio"></span>
+                        <span style={{ fontSize: 14, fontWeight: 500, flex: 1 }}>MB WAY</span>
+                      </label>
+                    </div>
+
+                    {payMethod === 'card' && (
+                      <div className="form-grid">
+                        <div className="full">
+                          <label className="field-label">NÃºmero do cartÃ£o</label>
+                          <input className="input" value={form.cardNumber} onChange={(e) => set('cardNumber', e.target.value)}
+                            placeholder="0000 0000 0000 0000" maxLength={19} />
+                        </div>
+                        <div className="full">
+                          <label className="field-label">Nome no cartÃ£o</label>
+                          <input className="input" value={form.cardName} onChange={(e) => set('cardName', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="field-label">Validade</label>
+                          <input className="input" value={form.expiry} onChange={(e) => set('expiry', e.target.value)} placeholder="MM/AA" />
+                        </div>
+                        <div>
+                          <label className="field-label">CVC</label>
+                          <input className="input" value={form.cvc} onChange={(e) => set('cvc', e.target.value)} placeholder="000" maxLength={4} />
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', alignPeÃ§as: 'center', gap: 8, marginTop: 20, fontSize: 12, color: 'var(--muted)' }}>
+                      <Icon name="shield" size={14} stroke={1.4} />
+                      <span>Pagamento encriptado Â· Os dados nÃ£o sÃ£o guardados.</span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 32 }}>
+                      <button className="btn btn-ghost" onClick={() => setStep(2)}>
+                        <Icon name="arrow-l" size={14} /> Voltar
+                      </button>
+                      <button className="btn btn-primary btn-lg" disabled={!validStep3} onClick={placeOrder}>
+                        Confirmar encomenda Â· â‚¬{total.toFixed(2)}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* SUMMARY */}
+              <div className="checkout-side">
+                <div className="t-caps muted" style={{ marginBottom: 20 }}>Encomenda Â· {cart.reduce((s, it) => s + it.qty, 0)} artigos</div>
+                <div>
+                  {cart.map(it => {
+                    const p = PRODUCTS.find(pp => pp.id === it.productId);
+                    if (!p) return null;
+                    const c = p.colors.find(cc => cc.id === it.color) || p.colors[0];
+                    return (
+                      <div key={it.id} className="summary-item">
+                        <div className="thumb">
+                          <img src={p.images[0]} alt={p.name} />
+                          <span className="qbadge">{it.qty}</span>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 500 }}>{p.name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{c.label} Â· {it.size}</div>
+                        </div>
+                        <div style={{ fontSize: 13 }}>â‚¬{(p.price * it.qty).toFixed(2)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ marginTop: 24 }}>
+                  <div className="summary-row"><span className="lbl">Subtotal</span><span>â‚¬{cartSubtotal.toFixed(2)}</span></div>
+                  <div className="summary-row"><span className="lbl">Envio ({shipObj.label})</span><span>{shipping === 0 ? 'GrÃ¡tis' : `â‚¬${shipping.toFixed(2)}`}</span></div>
+                  <div className="summary-row"><span className="lbl">IVA incluÃ­do (23%)</span><span>â‚¬{tax.toFixed(2)}</span></div>
+                  <div className="summary-row total"><span>Total</span><span>â‚¬{total.toFixed(2)}</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+
+
+
+
+    function PageAccount() {
+      const { authed, setAuthed, navigate, wishlist, toggleWishlist, sbUser, sbProfile, setSbProfile, showToast } = useStore();
+      const [tab, setTab] = useState('login');
+      const [section, setSection] = useState('orders');
+
+      const [form, setForm] = useState({ email: '', password: '', firstName: '', lastName: '' });
+      const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      useEffect(() => {
+        if (sbUser || sbProfile) {
+          setForm({
+            email: sbUser?.email || '',
+            password: '',
+            firstName: sbProfile?.first_name || '',
+            lastName: sbProfile?.last_name || '',
+          });
+        }
+      }, [sbUser, sbProfile]);
+
+      if (!authed) {
+        return (
+          <div className="page">
+            <div className="container">
+              <div className="auth">
+                <div className="auth-tabs">
+                  <button className={`auth-tab ${tab === 'login' ? 'active' : ''}`} onClick={() => setTab('login')}>Entrar</button>
+                  <button className={`auth-tab ${tab === 'register' ? 'active' : ''}`} onClick={() => setTab('register')}>Criar conta</button>
+                </div>
+
+                {tab === 'login' ? (
+                  <React.Fragment>
+                    <h2 className="t-h2" style={{ margin: 0, marginBottom: 8 }}>Bem-vindo de volta</h2>
+                    <p className="t-body-sm" style={{ marginBottom: 24 }}>Acede Ã s tuas encomendas e lista de desejos.</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                      <div>
+                        <label className="field-label">Email</label>
+                        <input className="input" type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="tu@email.com" />
+                      </div>
+                      <div>
+                        <label className="field-label">Palavra-passe</label>
+                        <input className="input" type="password" value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" />
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'center' }}>
+                        <label className="check">
+                          <input type="checkbox" />
+                          <span className="box"></span>
+                          <span>Lembrar-me</span>
+                        </label>
+                        <a className="t-body-sm muted" style={{ cursor: 'pointer' }}>Esqueci a palavra-passe</a>
+                      </div>
+                      <button className="btn btn-primary btn-lg btn-block" onClick={async () => {
+                        if (window.__SUPABASE_CONFIGURED__) {
+                          try {
+                            await SupabaseAPI.signIn(form.email, form.password);
+                            navigate('/account');
+                          } catch (e) { showToast('Credenciais invÃ¡lidas'); }
+                        } else { setAuthed(true); }
+                      }}>
+                        Entrar
+                      </button>
+                      <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em', textTransform: 'uppercase', margin: '8px 0' }}>OU</div>
+                      <button className="btn btn-secondary btn-block">Continuar com Apple</button>
+                      <button className="btn btn-secondary btn-block">Continuar com Google</button>
+                    </div>
+                  </React.Fragment>
+                ) : (
+                  <React.Fragment>
+                    <h2 className="t-h2" style={{ margin: 0, marginBottom: 8 }}>Cria a tua conta</h2>
+                    <p className="t-body-sm" style={{ marginBottom: 24 }}>Encomendas mais rÃ¡pidas e acesso a ediÃ§Ãµes limitadas.</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                      <div className="form-grid">
+                        <div>
+                          <label className="field-label">Primeiro nome</label>
+                          <input className="input" value={form.firstName} onChange={(e) => set('firstName', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="field-label">Apelido</label>
+                          <input className="input" value={form.lastName} onChange={(e) => set('lastName', e.target.value)} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="field-label">Email</label>
+                        <input className="input" type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
+                      </div>
+                      <div>
+                        <label className="field-label">Palavra-passe</label>
+                        <input className="input" type="password" value={form.password} onChange={(e) => set('password', e.target.value)} />
+                      </div>
+                      <label className="check">
+                        <input type="checkbox" />
+                        <span className="box"></span>
+                        <span>Quero receber novidades sobre lanÃ§amentos</span>
+                      </label>
+                      <button className="btn btn-primary btn-lg btn-block" onClick={async () => {
+                        if (window.__SUPABASE_CONFIGURED__) {
+                          try {
+                            await SupabaseAPI.signUp(form.email, form.password, form.firstName, form.lastName);
+                            showToast('Confirma o e-mail para activar a conta');
+                            navigate('/account');
+                          } catch (e) { showToast('Erro ao criar conta'); }
+                        } else { setAuthed(true); }
+                      }}>
+                        Criar conta
+                      </button>
+                    </div>
+                  </React.Fragment>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // AUTHED VIEW
+      const wishlistProducts = PRODUCTS.filter(p => wishlist.includes(p.id));
+
+      return (
+        <div className="page">
+          <div className="container">
+            <div className="page-head">
+              <div className="crumb">
+                <a onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>HOME</a>
+                <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
+                <span style={{ color: '#fff' }}>ACCOUNT</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'baseline', flexWrap: 'wrap', gap: 16 }}>
+                <div>
+                  <h1 className="t-h1" style={{ margin: 0 }}>OlÃ¡, {sbProfile?.first_name || sbUser?.email?.split('@')[0] || 'Cliente'}</h1>
+                  <div className="t-mono" style={{ color: 'var(--muted)', marginTop: 8 }}>
+                    CLIENTE #KR-2026-{Math.floor(Math.random() * 9000 + 1000)}
+                  </div>
+                </div>
+                <button className="btn btn-secondary" onClick={async () => {
+                  if (window.__SUPABASE_CONFIGURED__) await SupabaseAPI.signOut();
+                  setAuthed(false);
+                }}>Terminar sessÃ£o</button>
+              </div>
+            </div>
+          </div>
+
+          <div className="container">
+            <div className="account-layout">
+              <aside className="account-side">
+                <a className={section === 'orders' ? 'active' : ''} onClick={() => setSection('orders')}>Encomendas</a>
+                <a className={section === 'wishlist' ? 'active' : ''} onClick={() => setSection('wishlist')}>
+                  Lista de desejos <span style={{ marginLeft: 4, color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>({wishlist.length})</span>
+                </a>
+                <a className={section === 'addresses' ? 'active' : ''} onClick={() => setSection('addresses')}>Moradas</a>
+                <a className={section === 'profile' ? 'active' : ''} onClick={() => setSection('profile')}>Perfil</a>
+                <a className={section === 'newsletter' ? 'active' : ''} onClick={() => setSection('newsletter')}>Newsletter</a>
+              </aside>
+
+              <div className="account-main">
+                {section === 'orders' && <OrdersSection />}
+                {section === 'wishlist' && (
+                  <div>
+                    <h2 className="t-h2" style={{ margin: 0, marginBottom: 24 }}>Lista de desejos</h2>
+                    {wishlistProducts.length === 0 ? (
+                      <div className="empty" style={{ padding: '60px 0' }}>
+                        <Icon name="heart" size={28} stroke={1.2} />
+                        <div className="t-h3">A tua lista de desejos estÃ¡ vazia</div>
+                        <button className="btn btn-secondary" onClick={() => navigate('/shop')}>Explorar loja</button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 1, background: 'var(--hairline)', border: '1px solid var(--hairline)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
+                        {wishlistProducts.map(p => <ProductCard key={p.id} product={p} />)}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {section === 'addresses' && <AddressesSection />}
+                {section === 'profile' && <ProfileSection form={form} setForm={setForm} />}
+                {section === 'newsletter' && <NewsletterSection />}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function OrdersSection() {
+      const { sbUser } = useStore();
+      const [orders, setOrders] = useState([
+        { id: 'KR-204891', date: '14 Abr 2026', total: 410, status: 'delivered', items: 3 },
+        { id: 'KR-198327', date: '02 Mar 2026', total: 145, status: 'delivered', items: 1 },
+        { id: 'KR-187244', date: '18 Jan 2026', total: 220, status: 'delivered', items: 2 },
+      ]);
+      useEffect(() => {
+        if (sbUser && window.__SUPABASE_CONFIGURED__) {
+          SupabaseAPI.getOrders(sbUser.id).then(data => {
+            if (data && data.length > 0) {
+              setOrders(data.map(o => ({
+                id: o.order_ref,
+                date: new Date(o.created_at).toLocaleDateString('pt-PT'),
+                total: Number(o.total),
+                status: o.status,
+                items: o.item_count || 0,
+              })));
+            }
+          });
+        }
+      }, [sbUser]);
+      return (
+        <div>
+          <h2 className="t-h2" style={{ margin: 0, marginBottom: 24 }}>Encomendas</h2>
+          <div style={{ border: '1px solid var(--hairline)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
+            {orders.map((o, i) => (
+              <div key={o.id} style={{
+                display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: 16,
+                padding: 20, alignPeÃ§as: 'center',
+                borderBottom: i < orders.length - 1 ? '1px solid var(--hairline)' : 0
+              }}>
+                <div>
+                  <div className="t-caps muted" style={{ marginBottom: 4 }}>ORDER</div>
+                  <div className="t-mono" style={{ fontSize: 13 }}>{o.id}</div>
+                </div>
+                <div>
+                  <div className="t-caps muted" style={{ marginBottom: 4 }}>DATA</div>
+                  <div style={{ fontSize: 13 }}>{o.date}</div>
+                </div>
+                <div>
+                  <div className="t-caps muted" style={{ marginBottom: 4 }}>ARTIGOS</div>
+                  <div style={{ fontSize: 13 }}>{o.items}</div>
+                </div>
+                <div>
+                  <div className="t-caps muted" style={{ marginBottom: 4 }}>TOTAL</div>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>â‚¬{o.total.toFixed(2)}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignPeÃ§as: 'center' }}>
+                  <span className="tag" style={{ borderColor: '#fff', color: '#fff' }}>{o.status}</span>
+                  <button className="btn btn-secondary btn-sm">Detalhes</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function AddressesSection() {
+      return (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'center', marginBottom: 24 }}>
+            <h2 className="t-h2" style={{ margin: 0 }}>Moradas</h2>
+            <button className="btn btn-secondary btn-sm"><Icon name="plus" size={12} /> Nova</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }} className="addr-grid">
+            <div style={{ border: '1px solid #fff', borderRadius: 'var(--r)', padding: 24 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+                <span className="tag">PRINCIPAL</span>
+                <Icon name="check" size={16} />
+              </div>
+              <div style={{ fontSize: 14, lineHeight: 1.6 }}>
+                <strong>Morada de envio</strong><br />
+                Rua das Flores 42, 2Âº Esq<br />
+                1100-180 Lisboa<br />
+                Portugal<br />
+                <span style={{ color: 'var(--muted)' }}>+351 912 345 678</span>
+              </div>
+              <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+                <button className="btn btn-secondary btn-sm">Editar</button>
+                <button className="btn btn-ghost btn-sm">Remover</button>
+              </div>
+            </div>
+            <div style={{ border: '1px solid var(--hairline)', borderRadius: 'var(--r)', padding: 24 }}>
+              <div style={{ marginBottom: 16 }}>
+                <span className="tag">FATURAÃ‡ÃƒO</span>
+              </div>
+              <div style={{ fontSize: 14, lineHeight: 1.6 }}>
+                Igual Ã  morada principal
+              </div>
+            </div>
+          </div>
+          <style>{`@media (max-width: 720px) { .addr-grid { grid-template-columns: 1fr !important; } }`}</style>
+        </div>
+      );
+    }
+
+    function ProfileSection({ form, setForm }) {
+      const { sbUser, showToast } = useStore();
+
+      return (
+        <div>
+          <h2 className="t-h2" style={{ margin: 0, marginBottom: 24 }}>Perfil</h2>
+          <div className="form-grid" style={{ maxWidth: 560 }}>
+            <div>
+              <label className="field-label">Primeiro nome</label>
+              <input className="input" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} />
+            </div>
+            <div>
+              <label className="field-label">Apelido</label>
+              <input className="input" value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
+            </div>
+            <div className="full">
+              <label className="field-label">Email</label>
+              <input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            </div>
+            <div className="full">
+              <label className="field-label">Palavra-passe</label>
+              <input className="input" type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" />
+            </div>
+          </div>
+          <button className="btn btn-primary" style={{ marginTop: 24 }} onClick={async () => {
+            if (!window.__SUPABASE_CONFIGURED__ || !sbUser) {
+              showToast('Sem ligaÃ§Ã£o Supabase ou sessÃ£o invÃ¡lida');
+              return;
+            }
+            try {
+              await SupabaseAPI.updateProfile(sbUser.id, {
+                first_name: form.firstName,
+                last_name: form.lastName,
+              });
+              showToast('Perfil atualizado');
+            } catch (e) {
+              showToast('Erro ao guardar perfil');
+            }
+          }}>
+            Guardar alteraÃ§Ãµes
+          </button>
+        </div>
+      );
+    }
+
+    function NewsletterSection() {
+      return (
+        <div>
+          <h2 className="t-h2" style={{ margin: 0, marginBottom: 24 }}>Newsletter</h2>
+          <div style={{ maxWidth: 560, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <label className="check"><input type="checkbox" defaultChecked /><span className="box"></span><span>Novidades & lanÃ§amentos</span></label>
+            <label className="check"><input type="checkbox" /><span className="box"></span><span>EdiÃ§Ãµes limitadas (acesso prioritÃ¡rio)</span></label>
+            <label className="check"><input type="checkbox" /><span className="box"></span><span>Eventos & ateliers</span></label>
+            <button className="btn btn-primary" style={{ marginTop: 8, alignSelf: 'flex-start' }}>Atualizar preferÃªncias</button>
+          </div>
+        </div>
+      );
+    }
+
+
+
+
+
+    function PageContact() {
+      const { navigate, showToast } = useStore();
+      const [form, setForm] = useState({ name: '', email: '', topic: 'order', message: '' });
+      const [sent, setSent] = useState(false);
+      const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      const submit = (e) => {
+        e.preventDefault();
+        setSent(true);
+        showToast('Mensagem enviada');
+      };
+
+      return (
+        <div className="page">
+          <div className="container">
+            <div className="page-head">
+              <div className="crumb">
+                <a onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>HOME</a>
+                <span style={{ margin: '0 8px', color: 'var(--hairline-strong)' }}>/</span>
+                <span style={{ color: '#fff' }}>CONTACT</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'baseline', flexWrap: 'wrap', gap: 16 }}>
+                <div>
+                  <h1 className="t-h1" style={{ margin: 0 }}>Contacto</h1>
+                  <p className="t-body-sm" style={{ marginTop: 12, maxWidth: 520 }}>
+                    Resposta em 24h em dias Ãºteis. Para questÃµes sobre encomendas, inclui a referÃªncia (KR-XXXXXX).
+                  </p>
+                </div>
+                <span className="t-mono" style={{ color: 'var(--muted)' }}>TEMPO DE RESPOSTA Â· ~14H</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="container">
+            <div style={{
+              display: 'grid', gridTemplateColumns: '1.4fr 1fr',
+              borderBottom: '1px solid var(--hairline)', minHeight: '60vh'
+            }} className="contact-grid">
+              {/* FORM */}
+              <div style={{ padding: '40px 0', paddingRight: 'var(--pad-page)', borderRight: '1px solid var(--hairline)' }} className="contact-form">
+                {sent ? (
+                  <div className="empty" style={{ padding: '80px 0' }}>
+                    <div style={{ width: 56, height: 56, border: '1px solid #fff', borderRadius: '50%', display: 'flex', alignPeÃ§as: 'center', justifyContent: 'center' }}>
+                      <Icon name="check" size={24} />
+                    </div>
+                    <h2 className="t-h2" style={{ margin: 0 }}>Recebemos a tua mensagem</h2>
+                    <p className="t-body-sm" style={{ maxWidth: 360, textAlign: 'center' }}>
+                      Vamos responder para <strong style={{ color: '#fff' }}>{form.email}</strong> nas prÃ³ximas 24h.
+                    </p>
+                    <button className="btn btn-secondary" onClick={() => { setSent(false); setForm({ name: '', email: '', topic: 'order', message: '' }); }}>
+                      Enviar outra mensagem
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={submit}>
+                    <h2 className="t-h2" style={{ margin: 0, marginBottom: 24 }}>Envia-nos uma mensagem</h2>
+                    <div className="form-grid" style={{ maxWidth: 560 }}>
+                      <div>
+                        <label className="field-label">Nome</label>
+                        <input className="input" value={form.name} onChange={(e) => set('name', e.target.value)} required />
+                      </div>
+                      <div>
+                        <label className="field-label">Email</label>
+                        <input className="input" type="email" value={form.email} onChange={(e) => set('email', e.target.value)} required />
+                      </div>
+                      <div className="full">
+                        <label className="field-label">Assunto</label>
+                        <select className="select" value={form.topic} onChange={(e) => set('topic', e.target.value)}>
+                          <option value="order">Encomenda</option>
+                          <option value="returns">DevoluÃ§Ã£o / troca</option>
+                          <option value="product">Produto / disponibilidade</option>
+                          <option value="press">Imprensa</option>
+                          <option value="wholesale">Grossista</option>
+                          <option value="other">Outro</option>
+                        </select>
+                      </div>
+                      <div className="full">
+                        <label className="field-label">Mensagem</label>
+                        <textarea className="textarea" value={form.message} onChange={(e) => set('message', e.target.value)}
+                          placeholder="Escreve aqui a tua questÃ£o..." required></textarea>
+                      </div>
+                    </div>
+                    <div style={{ marginTop: 24, display: 'flex', alignPeÃ§as: 'center', gap: 16, flexWrap: 'wrap' }}>
+                      <button className="btn btn-primary btn-lg">Enviar mensagem</button>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Resposta em 24h em dias Ãºteis.</span>
+                    </div>
+                  </form>
+                )}
+              </div>
+
+              {/* INFO SIDE */}
+              <div style={{ padding: '40px 0 40px var(--pad-page)' }} className="contact-info">
+                <ContactBlock icon="mail" lbl="E-MAIL"
+                  v="hello@kara.studio"
+                  s="Suporte geral, encomendas, devoluÃ§Ãµes." />
+                <ContactBlock icon="phone" lbl="TELEFONE"
+                  v="+351 21 000 0000"
+                  s="Segâ€“Sex Â· 10:00â€“18:00 (WET)" />
+                <ContactBlock icon="pin" lbl="ATELIER"
+                  v="Rua da Boavista 42, Lisboa"
+                  s="Visitas apenas com marcaÃ§Ã£o prÃ©via." />
+                <ContactBlock icon="instagram" lbl="SOCIAL"
+                  v="@kara.studio"
+                  s="AtualizaÃ§Ãµes de produÃ§Ã£o e lanÃ§amentos." />
+              </div>
+            </div>
+
+            <style>{`
+          @media (max-width: 900px) {
+            .contact-grid { grid-template-columns: 1fr !important; }
+            .contact-form { border-right: 0 !important; padding-right: 0 !important; border-bottom: 1px solid var(--hairline); }
+            .contact-info { padding-left: 0 !important; }
+          }
+        `}</style>
+
+            {/* FAQ â€” quick-help */}
+            <section className="section-tight">
+              <div className="sec-head">
+                <div className="left">
+                  <span className="t-mono idx">[FAQ]</span>
+                  <h2 className="t-h2" style={{ margin: 0 }}>Perguntas frequentes</h2>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 1, background: 'var(--hairline)', border: '1px solid var(--hairline)', borderRadius: 'var(--r)', overflow: 'hidden' }} className="faq-grid">
+                <FaqRow q="Quanto tempo demora a entrega?" a="3â€“5 dias Ãºteis com envio standard, 1â€“2 dias com express." />
+                <FaqRow q="Posso devolver uma peÃ§a?" a="Sim, em 30 dias apÃ³s receÃ§Ã£o. As devoluÃ§Ãµes sÃ£o gratuitas em Portugal." />
+                <FaqRow q="Os tamanhos correspondem ao padrÃ£o EU?" a="Sim, mas as nossas peÃ§as tÃªm cortes mais relaxados â€” consulta a tabela em cada produto." />
+                <FaqRow q="Como funciona a garantia de 8 anos?" a="Cobre defeitos de fabrico e construÃ§Ã£o. ReparaÃ§Ãµes nos nossos ateliers." />
+              </div>
+              <style>{`@media (max-width: 720px) { .faq-grid { grid-template-columns: 1fr !important; } }`}</style>
+            </section>
+          </div>
+        </div>
+      );
+    }
+
+    function ContactBlock({ icon, lbl, v, s }) {
+      return (
+        <div style={{ borderTop: '1px solid var(--hairline)', padding: '24px 0', display: 'grid', gridTemplateColumns: '32px 1fr', gap: 16 }}>
+          <Icon name={icon} size={20} stroke={1.4} />
+          <div>
+            <div className="t-caps muted" style={{ marginBottom: 6 }}>{lbl}</div>
+            <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 4 }}>{v}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{s}</div>
+          </div>
+        </div>
+      );
+    }
+
+    function FaqRow({ q, a }) {
+      const [open, setOpen] = useState(false);
+      return (
+        <div style={{ background: 'var(--background)' }}>
+          <button onClick={() => setOpen(!open)} style={{
+            width: '100%', display: 'flex', justifyContent: 'space-between', alignPeÃ§as: 'center',
+            background: 'transparent', border: 0, padding: '20px 24px',
+            color: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer', textAlign: 'left'
+          }}>
+            <span>{q}</span>
+            <Icon name={open ? 'minus' : 'plus'} size={14} stroke={1.5} />
+          </button>
+          {open && (
+            <div style={{ padding: '0 24px 20px', fontSize: 13, color: 'var(--on-surface-variant)', lineHeight: 1.6 }}>
+              {a}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+
+
+
+
+    function App() {
+      const { route, setDrawerOpen, setSearchOpen, setMobileMenuOpen } = useStore();
+      const r = parseRoute(route);
+
+      // Close all overlays on route change
+      useEffect(() => {
+        setDrawerOpen(false);
+        setSearchOpen(false);
+        setMobileMenuOpen(false);
+      }, [route, setDrawerOpen, setSearchOpen, setMobileMenuOpen]);
+
+      let page;
+      switch (r.name) {
+        case 'home': page = <PageHome />; break;
+        case 'shop': page = <PageShop category={r.category} />; break;
+        case 'product': page = <PageProduct productId={r.productId} />; break;
+        case 'cart': page = <PageCart />; break;
+        case 'checkout': page = <PageCheckout />; break;
+        case 'account': page = <PageAccount />; break;
+        case 'contact': page = <PageContact />; break;
+        default: page = <PageHome />;
+      }
+
+      return (
+        <React.Fragment>
+          <Nav />
+          <main data-screen-label={r.name}>{page}</main>
+          <Footer />
+          <MiniCart />
+          <SearchOverlay />
+          <Toast />
+          <SupabaseBanner />
+        </React.Fragment>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(
+      <StoreProvider><App /></StoreProvider>
+    );
+
