@@ -137,12 +137,101 @@
           .upsert({ email, first_name: firstName }, { onConflict: 'email' });
       },
 
-      // Checkout — cria encomenda via função RPC
-      async placeOrder(params) {
+      // Checkout — insere encomenda e itens diretamente
+      async placeOrder({ email, profile_id, items, ship, method, payMethod, subtotal, shippingCost, tax, total, notes }) {
         if (!window.__SUPABASE_CONFIGURED__) return 'KR-' + Math.floor(Math.random() * 900000 + 100000);
-        const { data, error } = await window.supabaseClient.rpc('checkout_cart', params);
+        const { data: order, error: orderError } = await window.supabaseClient
+          .from('orders')
+          .insert({
+            profile_id: profile_id || null,
+            email,
+            ship_first_name: ship.firstName,
+            ship_last_name:  ship.lastName,
+            ship_address_1:  ship.address,
+            ship_city:       ship.city,
+            ship_postal:     ship.postal,
+            ship_country:    ship.country,
+            ship_phone:      ship.phone || null,
+            shipping_method: method,
+            shipping_cost:   shippingCost,
+            payment_method:  payMethod,
+            subtotal,
+            tax,
+            total,
+            notes: notes || null,
+          })
+          .select('id, order_ref')
+          .single();
+        if (orderError) throw orderError;
+        const { error: itemsError } = await window.supabaseClient
+          .from('order_items')
+          .insert(items.map(it => ({
+            order_id:     order.id,
+            product_name: it.name,
+            product_sku:  it.sku,
+            color_label:  it.colorLabel,
+            size_label:   it.size,
+            image_url:    it.image || null,
+            qty:          it.qty,
+            unit_price:   it.price,
+          })));
+        if (itemsError) throw itemsError;
+        return order.order_ref;
+      },
+
+      // Moradas
+      async getAddresses(profileId) {
+        if (!window.__SUPABASE_CONFIGURED__) return [];
+        const { data } = await window.supabaseClient
+          .from('addresses')
+          .select('*')
+          .eq('profile_id', profileId)
+          .order('is_default', { ascending: false });
+        return data || [];
+      },
+
+      async createAddress(profileId, fields) {
+        const { error } = await window.supabaseClient
+          .from('addresses')
+          .insert({ profile_id: profileId, ...fields });
         if (error) throw error;
-        return data;
+      },
+
+      async updateAddress(id, fields) {
+        const { error } = await window.supabaseClient
+          .from('addresses')
+          .update(fields)
+          .eq('id', id);
+        if (error) throw error;
+      },
+
+      async deleteAddress(id) {
+        const { error } = await window.supabaseClient
+          .from('addresses')
+          .delete()
+          .eq('id', id);
+        if (error) throw error;
+      },
+
+      // Itens de encomenda
+      async getOrderItems(orderId) {
+        if (!window.__SUPABASE_CONFIGURED__) return [];
+        const { data } = await window.supabaseClient
+          .from('order_items')
+          .select('*')
+          .eq('order_id', orderId);
+        return data || [];
+      },
+
+      // Newsletter
+      async getNewsletterStatus(email) {
+        if (!window.__SUPABASE_CONFIGURED__ || !email) return false;
+        const { data } = await window.supabaseClient
+          .from('newsletter_subscribers')
+          .select('is_active')
+          .eq('email', email)
+          .single();
+        return data?.is_active ?? false;
       },
     };
 
@@ -1615,8 +1704,8 @@
 
 
     function PageProduct({ productId }) {
-      const { navigate, addToCart, wishlist, toggleWishlist } = useStore();
-      const product = PRODUCTS.find(p => p.id === productId) || PRODUCTS[0];
+      const { navigate, addToCart, wishlist, toggleWishlist, products: storeProducts } = useStore();
+      const product = storeProducts.find(p => p.id === productId) || storeProducts[0];
       const [colorIdx, setColorIdx] = useState(0);
       const [size, setSize] = useState(null);
       const [openSection, setOpenSection] = useState('details');
@@ -1631,7 +1720,7 @@
       const color = product.colors[colorIdx];
       const isFav = wishlist.includes(product.id);
 
-      const related = PRODUCTS.filter(p => p.gender === product.gender && p.category === product.category && p.id !== product.id).slice(0, 4);
+      const related = storeProducts.filter(p => p.gender === product.gender && p.category === product.category && p.id !== product.id).slice(0, 4);
 
       const handleAdd = () => {
         if (!size) return;
@@ -1689,6 +1778,16 @@
                   {product.tags && product.tags.length > 0 && (
                     <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                       {product.tags.map(t => <span key={t} className="tag">{t}</span>)}
+                    </div>
+                  )}
+                  {product.reviewCount > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+                      <span style={{ color: '#fff', fontSize: 13 }}>
+                        {'★'.repeat(Math.round(product.avgRating))}{'☆'.repeat(5 - Math.round(product.avgRating))}
+                      </span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        {Number(product.avgRating).toFixed(1)} ({product.reviewCount} {product.reviewCount === 1 ? 'avaliação' : 'avaliações'})
+                      </span>
                     </div>
                   )}
                 </div>
@@ -1953,12 +2052,12 @@
 
 
     function PageCheckout() {
-      const { cart, cartSubtotal, navigate, clearCart, showToast, products: PRODUCTS } = useStore();
+      const { cart, cartSubtotal, navigate, clearCart, showToast, products: PRODUCTS, sbUser } = useStore();
       const [step, setStep] = useState(1);
       const [shipMethod, setShipMethod] = useState('standard');
       const [payMethod, setPayMethod] = useState('card');
       const [done, setDone] = useState(false);
-      const [orderId] = useState(() => 'KR-' + Math.floor(Math.random() * 900000 + 100000));
+      const [orderRef, setOrderRef] = useState(null);
 
       const shipObj = SHIPPING.find(s => s.id === shipMethod) || SHIPPING[0];
       const shipping = cartSubtotal >= 120 && shipMethod === 'standard' ? 0 : shipObj.price;
@@ -1975,30 +2074,57 @@
       });
       const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+      // Pre-fill email for logged-in users
+      useEffect(() => {
+        if (sbUser?.email && !form.email) set('email', sbUser.email);
+      }, [sbUser]);
+
       // Empty cart redirect
       useEffect(() => {
         if (cart.length === 0 && !done) navigate('/cart');
       }, [cart.length, done, navigate]);
 
       const placeOrder = async () => {
+        let ref = 'KR-' + Math.floor(Math.random() * 900000 + 100000);
         try {
-          if (window.__SUPABASE_CONFIGURED__ && cartId) {
-            await SupabaseAPI.placeOrder({
-              p_cart_id: cartId,
-              p_email: form.email,
-              p_ship_fname: form.firstName,
-              p_ship_lname: form.lastName,
-              p_ship_address: form.address,
-              p_ship_city: form.city,
-              p_ship_postal: form.postal,
-              p_ship_country: form.country,
-              p_ship_phone: form.phone,
-              p_ship_method: shipMethod,
-              p_pay_method: payMethod,
-              p_notes: form.notes,
+          if (window.__SUPABASE_CONFIGURED__ && sbUser) {
+            const orderItems = cart.map(it => {
+              const p = PRODUCTS.find(pp => pp.id === it.productId);
+              const c = p?.colors.find(cc => cc.id === it.color) || p?.colors[0];
+              return {
+                name:       p?.name || '',
+                sku:        p?.sku  || '',
+                colorLabel: c?.label || '',
+                size:       it.size,
+                image:      p?.images?.[0] || null,
+                qty:        it.qty,
+                price:      p?.price || 0,
+              };
+            });
+            ref = await SupabaseAPI.placeOrder({
+              email:        sbUser.email,
+              profile_id:   sbUser.id,
+              items:        orderItems,
+              ship: {
+                firstName: form.firstName,
+                lastName:  form.lastName,
+                address:   form.address,
+                city:      form.city,
+                postal:    form.postal,
+                country:   form.country,
+                phone:     form.phone,
+              },
+              method:       shipMethod,
+              payMethod,
+              subtotal:     cartSubtotal,
+              shippingCost: shipping,
+              tax:          cartSubtotal * 0.23,
+              total,
+              notes:        form.notes,
             });
           }
         } catch (e) { console.warn('Checkout error', e); }
+        setOrderRef(ref);
         setDone(true);
         showToast('Encomenda confirmada');
         setTimeout(() => clearCart(), 200);
@@ -2031,7 +2157,7 @@
                 }}>
                   <div>
                     <div className="t-caps muted" style={{ marginBottom: 8 }}>Ref. Encomenda</div>
-                    <div className="t-mono" style={{ fontSize: 13 }}>{orderId}</div>
+                    <div className="t-mono" style={{ fontSize: 13 }}>{orderRef}</div>
                   </div>
                   <div>
                     <div className="t-caps muted" style={{ marginBottom: 8 }}>Total</div>
@@ -2280,7 +2406,7 @@
 
 
     function PageAccount() {
-      const { authed, setAuthed, navigate, wishlist, toggleWishlist, sbUser, sbProfile, setSbProfile, showToast } = useStore();
+      const { authed, setAuthed, navigate, wishlist, toggleWishlist, sbUser, sbProfile, setSbProfile, showToast, products: storeProducts } = useStore();
       const [tab, setTab] = useState('login');
       const [section, setSection] = useState('orders');
 
@@ -2327,7 +2453,18 @@
                           <span className="box"></span>
                           <span>Lembrar-me</span>
                         </label>
-                        <a className="t-body-sm muted" style={{ cursor: 'pointer' }}>Esqueci a palavra-passe</a>
+                        <a className="t-body-sm muted" style={{ cursor: 'pointer' }} onClick={async () => {
+                          if (!form.email) { showToast('Introduz o teu e-mail primeiro'); return; }
+                          if (window.__SUPABASE_CONFIGURED__) {
+                            try {
+                              const { error } = await window.supabaseClient.auth.resetPasswordForEmail(form.email, {
+                                redirectTo: window.location.origin + window.location.pathname,
+                              });
+                              if (error) throw error;
+                              showToast('E-mail de recuperação enviado');
+                            } catch (e) { showToast('Erro ao enviar e-mail de recuperação'); }
+                          }
+                        }}>Esqueci a palavra-passe</a>
                       </div>
                       <button className="btn btn-primary btn-lg btn-block" onClick={async () => {
                         if (window.__SUPABASE_CONFIGURED__) {
@@ -2393,7 +2530,7 @@
       }
 
       // AUTHED VIEW
-      const wishlistProducts = PRODUCTS.filter(p => wishlist.includes(p.id));
+      const wishlistProducts = storeProducts.filter(p => wishlist.includes(p.id));
 
       return (
         <div className="page">
@@ -2407,9 +2544,11 @@
               <div style={{ display: 'flex', justifyContent: 'space-between', alignPeças: 'baseline', flexWrap: 'wrap', gap: 16 }}>
                 <div>
                   <h1 className="t-h1" style={{ margin: 0 }}>Olá, {sbProfile?.first_name || sbUser?.email?.split('@')[0] || 'Cliente'}</h1>
-                  <div className="t-mono" style={{ color: 'var(--muted)', marginTop: 8 }}>
-                    CLIENTE #KR-2026-{Math.floor(Math.random() * 9000 + 1000)}
-                  </div>
+                  {sbProfile?.customer_ref && (
+                    <div className="t-mono" style={{ color: 'var(--muted)', marginTop: 8 }}>
+                      {sbProfile.customer_ref}
+                    </div>
+                  )}
                 </div>
                 <button className="btn btn-secondary" onClick={async () => {
                   if (window.__SUPABASE_CONFIGURED__) await SupabaseAPI.signOut();
@@ -2459,28 +2598,61 @@
       );
     }
 
+    const ORDER_STATUS_LABEL = {
+      pending: 'Pendente', confirmed: 'Confirmado', processing: 'Em preparação',
+      shipped: 'Enviado', delivered: 'Entregue', cancelled: 'Cancelado', refunded: 'Reembolsado',
+    };
+    const ORDER_STATUS_COLOR = {
+      pending: 'var(--muted)', confirmed: 'var(--muted)', processing: 'var(--muted)',
+      shipped: '#fff', delivered: '#fff', cancelled: 'var(--muted)', refunded: 'var(--muted)',
+    };
+
     function OrdersSection() {
-      const { sbUser } = useStore();
-      const [orders, setOrders] = useState([
-        { id: 'KR-204891', date: '14 Abr 2026', total: 410, status: 'delivered', items: 3 },
-        { id: 'KR-198327', date: '02 Mar 2026', total: 145, status: 'delivered', items: 1 },
-        { id: 'KR-187244', date: '18 Jan 2026', total: 220, status: 'delivered', items: 2 },
-      ]);
+      const { sbUser, navigate } = useStore();
+      const [orders, setOrders] = useState(null);
+      const [detail, setDetail] = useState(null); // { order, items, loading }
+
       useEffect(() => {
-        if (sbUser && window.__SUPABASE_CONFIGURED__) {
-          SupabaseAPI.getOrders(sbUser.id).then(data => {
-            if (data && data.length > 0) {
-              setOrders(data.map(o => ({
-                id: o.order_ref,
-                date: new Date(o.created_at).toLocaleDateString('pt-PT'),
-                total: Number(o.total),
-                status: o.status,
-                items: o.item_count || 0,
-              })));
-            }
-          });
-        }
+        if (!sbUser || !window.__SUPABASE_CONFIGURED__) { setOrders([]); return; }
+        SupabaseAPI.getOrders(sbUser.id).then(data => {
+          setOrders((data || []).map(o => ({
+            dbId:  o.id,
+            id:    o.order_ref,
+            date:  new Date(o.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: 'short', year: 'numeric' }),
+            total: Number(o.total),
+            status: o.status,
+            items: (o.order_items || []).length,
+            ship:  [o.ship_first_name, o.ship_last_name].filter(Boolean).join(' '),
+            address: [o.ship_address_1, o.ship_city, o.ship_postal].filter(Boolean).join(', '),
+            method: o.shipping_method,
+          })));
+        });
       }, [sbUser]);
+
+      const openDetail = async (o) => {
+        setDetail({ order: o, items: null, loading: true });
+        const items = await SupabaseAPI.getOrderItems(o.dbId);
+        setDetail(prev => prev ? { ...prev, items, loading: false } : null);
+      };
+
+      if (orders === null) return (
+        <div>
+          <h2 className="t-h2" style={{ margin: 0, marginBottom: 24 }}>Encomendas</h2>
+          <div className="t-body-sm muted" style={{ padding: '40px 0' }}>A carregar...</div>
+        </div>
+      );
+
+      if (orders.length === 0) return (
+        <div>
+          <h2 className="t-h2" style={{ margin: 0, marginBottom: 24 }}>Encomendas</h2>
+          <div className="empty" style={{ padding: '60px 0' }}>
+            <Icon name="bag" size={28} stroke={1.2} />
+            <div className="t-h3">Ainda não fizeste nenhuma encomenda</div>
+            <button className="btn btn-secondary" onClick={() => navigate('/shop')}>Explorar loja</button>
+          </div>
+        </div>
+      );
+
       return (
         <div>
           <h2 className="t-h2" style={{ margin: 0, marginBottom: 24 }}>Encomendas</h2>
@@ -2488,9 +2660,9 @@
             {orders.map((o, i) => (
               <div key={o.id} style={{
                 display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: 16,
-                padding: 20, alignPeças: 'center',
+                padding: 20, alignItems: 'center',
                 borderBottom: i < orders.length - 1 ? '1px solid var(--hairline)' : 0
-              }}>
+              }} className="order-row">
                 <div>
                   <div className="t-caps muted" style={{ marginBottom: 4 }}>ORDER</div>
                   <div className="t-mono" style={{ fontSize: 13 }}>{o.id}</div>
@@ -2507,58 +2679,313 @@
                   <div className="t-caps muted" style={{ marginBottom: 4 }}>TOTAL</div>
                   <div style={{ fontSize: 13, fontWeight: 500 }}>€{o.total.toFixed(2)}</div>
                 </div>
-                <div style={{ display: 'flex', gap: 8, alignPeças: 'center' }}>
-                  <span className="tag" style={{ borderColor: '#fff', color: '#fff' }}>{o.status}</span>
-                  <button className="btn btn-secondary btn-sm">Detalhes</button>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span className="tag" style={{ borderColor: ORDER_STATUS_COLOR[o.status], color: ORDER_STATUS_COLOR[o.status] }}>
+                    {ORDER_STATUS_LABEL[o.status] || o.status}
+                  </span>
+                  <button className="btn btn-secondary btn-sm" onClick={() => openDetail(o)}>Detalhes</button>
                 </div>
               </div>
             ))}
           </div>
+
+          {detail && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--hairline)', borderRadius: 'var(--r)', width: '100%', maxWidth: 600, maxHeight: '85vh', overflow: 'auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px 28px', borderBottom: '1px solid var(--hairline)' }}>
+                  <div>
+                    <div className="t-caps muted" style={{ marginBottom: 4 }}>Encomenda</div>
+                    <div className="t-mono" style={{ fontSize: 15, fontWeight: 500 }}>{detail.order.id}</div>
+                  </div>
+                  <button onClick={() => setDetail(null)} style={{ background: 'transparent', border: 0, color: 'var(--muted)', cursor: 'pointer', padding: 4 }}>
+                    <Icon name="close" size={20} stroke={1.5} />
+                  </button>
+                </div>
+
+                <div style={{ padding: '20px 28px', borderBottom: '1px solid var(--hairline)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <div>
+                    <div className="t-caps muted" style={{ marginBottom: 6 }}>Estado</div>
+                    <div style={{ fontSize: 13 }}>{ORDER_STATUS_LABEL[detail.order.status] || detail.order.status}</div>
+                  </div>
+                  <div>
+                    <div className="t-caps muted" style={{ marginBottom: 6 }}>Data</div>
+                    <div style={{ fontSize: 13 }}>{detail.order.date}</div>
+                  </div>
+                  {detail.order.ship && (
+                    <div className="full">
+                      <div className="t-caps muted" style={{ marginBottom: 6 }}>Destinatário</div>
+                      <div style={{ fontSize: 13 }}>{detail.order.ship}</div>
+                      {detail.order.address && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{detail.order.address}</div>}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ padding: '20px 28px' }}>
+                  <div className="t-caps muted" style={{ marginBottom: 16 }}>Artigos</div>
+                  {detail.loading ? (
+                    <div className="t-body-sm muted">A carregar...</div>
+                  ) : detail.items && detail.items.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {detail.items.map((it, i) => (
+                        <div key={i} style={{ display: 'flex', gap: 16, alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--hairline)' }}>
+                          {it.image_url && (
+                            <div style={{ width: 56, height: 64, flexShrink: 0, overflow: 'hidden', borderRadius: 4 }}>
+                              <img src={it.image_url} alt={it.product_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            </div>
+                          )}
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 500 }}>{it.product_name}</div>
+                            <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                              {[it.color_label, it.size_label].filter(Boolean).join(' · ')}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{it.product_sku}</div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 13, fontWeight: 500 }}>€{Number(it.unit_price).toFixed(2)}</div>
+                            <div style={{ fontSize: 11, color: 'var(--muted)' }}>×{it.qty}</div>
+                          </div>
+                        </div>
+                      ))}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, fontWeight: 500 }}>
+                        <span>Total</span>
+                        <span className="t-mono" style={{ fontSize: 14 }}>€{detail.order.total.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="t-body-sm muted">Sem artigos.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          <style>{`@media (max-width: 720px) { .order-row { grid-template-columns: 1fr 1fr !important; } }`}</style>
         </div>
       );
     }
 
     function AddressesSection() {
+      const { sbUser, showToast } = useStore();
+      const [addresses, setAddresses] = useState(null);
+      const [editing, setEditing] = useState(null); // null | 'new' | address-object
+      const [confirmDelete, setConfirmDelete] = useState(null);
+
+      const BLANK = { label: 'Principal', first_name: '', last_name: '', address_1: '', address_2: '', city: '', postal_code: '', country: 'Portugal', phone: '', is_default: false };
+      const [form, setForm] = useState(BLANK);
+      const sf = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      const reload = () => {
+        if (!sbUser || !window.__SUPABASE_CONFIGURED__) { setAddresses([]); return; }
+        SupabaseAPI.getAddresses(sbUser.id).then(setAddresses);
+      };
+
+      useEffect(reload, [sbUser]);
+
+      const openNew = () => { setForm(BLANK); setEditing('new'); };
+      const openEdit = (addr) => {
+        setForm({
+          label:        addr.label || 'Principal',
+          first_name:   addr.first_name || '',
+          last_name:    addr.last_name  || '',
+          address_1:    addr.address_1,
+          address_2:    addr.address_2  || '',
+          city:         addr.city,
+          postal_code:  addr.postal_code,
+          country:      addr.country,
+          phone:        addr.phone || '',
+          is_default:   addr.is_default || false,
+        });
+        setEditing(addr);
+      };
+
+      const save = async () => {
+        if (!form.address_1 || !form.city || !form.postal_code) {
+          showToast('Preenche os campos obrigatórios');
+          return;
+        }
+        try {
+          if (editing === 'new') {
+            await SupabaseAPI.createAddress(sbUser.id, form);
+          } else {
+            await SupabaseAPI.updateAddress(editing.id, form);
+          }
+          reload();
+          setEditing(null);
+          showToast(editing === 'new' ? 'Morada adicionada' : 'Morada atualizada');
+        } catch (e) { showToast('Erro ao guardar morada'); }
+      };
+
+      const remove = async (id) => {
+        try {
+          await SupabaseAPI.deleteAddress(id);
+          setAddresses(prev => prev.filter(a => a.id !== id));
+          showToast('Morada removida');
+        } catch (e) { showToast('Erro ao remover morada'); }
+        setConfirmDelete(null);
+      };
+
+      if (addresses === null) return (
+        <div>
+          <h2 className="t-h2" style={{ margin: 0, marginBottom: 24 }}>Moradas</h2>
+          <div className="t-body-sm muted" style={{ padding: '40px 0' }}>A carregar...</div>
+        </div>
+      );
+
       return (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignPeças: 'center', marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
             <h2 className="t-h2" style={{ margin: 0 }}>Moradas</h2>
-            <button className="btn btn-secondary btn-sm"><Icon name="plus" size={12} /> Nova</button>
+            {!editing && (
+              <button className="btn btn-secondary btn-sm" onClick={openNew}>
+                <Icon name="plus" size={12} /> Nova morada
+              </button>
+            )}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }} className="addr-grid">
-            <div style={{ border: '1px solid #fff', borderRadius: 'var(--r)', padding: 24 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-                <span className="tag">PRINCIPAL</span>
-                <Icon name="check" size={16} />
+
+          {editing && (
+            <div style={{ border: '1px solid var(--hairline)', borderRadius: 'var(--r)', padding: 24, marginBottom: 24 }}>
+              <h3 className="t-h3" style={{ margin: '0 0 20px' }}>
+                {editing === 'new' ? 'Nova morada' : 'Editar morada'}
+              </h3>
+              <div className="form-grid">
+                <div>
+                  <label className="field-label">Etiqueta</label>
+                  <input className="input" value={form.label} onChange={e => sf('label', e.target.value)} placeholder="Principal, Trabalho…" />
+                </div>
+                <div></div>
+                <div>
+                  <label className="field-label">Nome</label>
+                  <input className="input" value={form.first_name} onChange={e => sf('first_name', e.target.value)} />
+                </div>
+                <div>
+                  <label className="field-label">Apelido</label>
+                  <input className="input" value={form.last_name} onChange={e => sf('last_name', e.target.value)} />
+                </div>
+                <div className="full">
+                  <label className="field-label">Morada *</label>
+                  <input className="input" value={form.address_1} onChange={e => sf('address_1', e.target.value)} placeholder="Rua, número, andar" />
+                </div>
+                <div className="full">
+                  <label className="field-label">Complemento</label>
+                  <input className="input" value={form.address_2} onChange={e => sf('address_2', e.target.value)} placeholder="Bloco, apartamento…" />
+                </div>
+                <div>
+                  <label className="field-label">Cidade *</label>
+                  <input className="input" value={form.city} onChange={e => sf('city', e.target.value)} />
+                </div>
+                <div>
+                  <label className="field-label">Código postal *</label>
+                  <input className="input" value={form.postal_code} onChange={e => sf('postal_code', e.target.value)} placeholder="0000-000" />
+                </div>
+                <div>
+                  <label className="field-label">País</label>
+                  <select className="select" value={form.country} onChange={e => sf('country', e.target.value)}>
+                    <option>Portugal</option><option>Espanha</option><option>França</option>
+                    <option>Itália</option><option>Alemanha</option><option>Reino Unido</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="field-label">Telefone</label>
+                  <input className="input" value={form.phone} onChange={e => sf('phone', e.target.value)} placeholder="+351…" />
+                </div>
+                <div className="full">
+                  <label className="check">
+                    <input type="checkbox" checked={form.is_default} onChange={e => sf('is_default', e.target.checked)} />
+                    <span className="box"></span>
+                    <span>Definir como morada principal</span>
+                  </label>
+                </div>
               </div>
-              <div style={{ fontSize: 14, lineHeight: 1.6 }}>
-                <strong>Morada de envio</strong><br />
-                Rua das Flores 42, 2º Esq<br />
-                1100-180 Lisboa<br />
-                Portugal<br />
-                <span style={{ color: 'var(--muted)' }}>+351 912 345 678</span>
-              </div>
-              <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-                <button className="btn btn-secondary btn-sm">Editar</button>
-                <button className="btn btn-ghost btn-sm">Remover</button>
+              <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+                <button className="btn btn-primary" onClick={save}>Guardar</button>
+                <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancelar</button>
               </div>
             </div>
-            <div style={{ border: '1px solid var(--hairline)', borderRadius: 'var(--r)', padding: 24 }}>
-              <div style={{ marginBottom: 16 }}>
-                <span className="tag">FATURAÇÃO</span>
-              </div>
-              <div style={{ fontSize: 14, lineHeight: 1.6 }}>
-                Igual à morada principal
+          )}
+
+          {addresses.length === 0 && !editing ? (
+            <div className="empty" style={{ padding: '60px 0' }}>
+              <Icon name="pin" size={28} stroke={1.2} />
+              <div className="t-h3">Nenhuma morada guardada</div>
+              <button className="btn btn-secondary" onClick={openNew}>Adicionar morada</button>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }} className="addr-grid">
+              {addresses.map(addr => (
+                <div key={addr.id} style={{
+                  border: `1px solid ${addr.is_default ? '#fff' : 'var(--hairline)'}`,
+                  borderRadius: 'var(--r)', padding: 24
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+                    <span className="tag">{(addr.label || 'Morada').toUpperCase()}</span>
+                    {addr.is_default && <Icon name="check" size={16} />}
+                  </div>
+                  <div style={{ fontSize: 14, lineHeight: 1.6 }}>
+                    {(addr.first_name || addr.last_name) && (
+                      <strong>{[addr.first_name, addr.last_name].filter(Boolean).join(' ')}<br /></strong>
+                    )}
+                    {addr.address_1}<br />
+                    {addr.address_2 && <>{addr.address_2}<br /></>}
+                    {addr.postal_code} {addr.city}<br />
+                    {addr.country}
+                    {addr.phone && <><br /><span style={{ color: 'var(--muted)' }}>{addr.phone}</span></>}
+                  </div>
+                  <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => openEdit(addr)}>Editar</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(addr.id)}>Remover</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {confirmDelete && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--hairline)', borderRadius: 'var(--r)', padding: 32, maxWidth: 360, width: '100%' }}>
+                <div className="t-h3" style={{ margin: '0 0 12px' }}>Remover morada?</div>
+                <p className="t-body-sm" style={{ marginBottom: 24 }}>Esta ação não pode ser desfeita.</p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-primary" onClick={() => remove(confirmDelete)}>Remover</button>
+                  <button className="btn btn-ghost" onClick={() => setConfirmDelete(null)}>Cancelar</button>
+                </div>
               </div>
             </div>
-          </div>
+          )}
           <style>{`@media (max-width: 720px) { .addr-grid { grid-template-columns: 1fr !important; } }`}</style>
         </div>
       );
     }
 
     function ProfileSection({ form, setForm }) {
-      const { sbUser, showToast } = useStore();
+      const { sbUser, sbProfile, setSbProfile, showToast } = useStore();
+      const [phone, setPhone] = useState(sbProfile?.phone || '');
+      const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' });
+      const spw = (k, v) => setPwForm(f => ({ ...f, [k]: v }));
+
+      useEffect(() => { setPhone(sbProfile?.phone || ''); }, [sbProfile]);
+
+      const saveProfile = async () => {
+        if (!window.__SUPABASE_CONFIGURED__ || !sbUser) { showToast('Sem sessão válida'); return; }
+        try {
+          await SupabaseAPI.updateProfile(sbUser.id, {
+            first_name: form.firstName,
+            last_name:  form.lastName,
+            phone:      phone || null,
+          });
+          if (setSbProfile) setSbProfile(p => p ? { ...p, first_name: form.firstName, last_name: form.lastName, phone } : p);
+          showToast('Perfil atualizado');
+        } catch (e) { showToast('Erro ao guardar perfil'); }
+      };
+
+      const changePassword = async () => {
+        if (!pwForm.next || pwForm.next !== pwForm.confirm) { showToast('As palavras-passe não coincidem'); return; }
+        if (!window.__SUPABASE_CONFIGURED__) return;
+        try {
+          const { error } = await window.supabaseClient.auth.updateUser({ password: pwForm.next });
+          if (error) throw error;
+          showToast('Palavra-passe atualizada');
+          setPwForm({ current: '', next: '', confirm: '' });
+        } catch (e) { showToast(e.message || 'Erro ao alterar palavra-passe'); }
+      };
 
       return (
         <div>
@@ -2574,43 +3001,102 @@
             </div>
             <div className="full">
               <label className="field-label">Email</label>
-              <input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+              <input className="input" type="email" value={form.email} disabled style={{ opacity: 0.5, cursor: 'not-allowed' }} />
             </div>
             <div className="full">
-              <label className="field-label">Palavra-passe</label>
-              <input className="input" type="password" placeholder="••••••••" />
+              <label className="field-label">Telefone</label>
+              <input className="input" type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+351…" />
             </div>
           </div>
-          <button className="btn btn-primary" style={{ marginTop: 24 }} onClick={async () => {
-            if (!window.__SUPABASE_CONFIGURED__ || !sbUser) {
-              showToast('Sem ligação Supabase ou sessão inválida');
-              return;
-            }
-            try {
-              await SupabaseAPI.updateProfile(sbUser.id, {
-                first_name: form.firstName,
-                last_name: form.lastName,
-              });
-              showToast('Perfil atualizado');
-            } catch (e) {
-              showToast('Erro ao guardar perfil');
-            }
-          }}>
+          <button className="btn btn-primary" style={{ marginTop: 24 }} onClick={saveProfile}>
             Guardar alterações
           </button>
+
+          <div style={{ marginTop: 48, paddingTop: 32, borderTop: '1px solid var(--hairline)' }}>
+            <h3 className="t-h3" style={{ margin: '0 0 20px' }}>Alterar palavra-passe</h3>
+            <div className="form-grid" style={{ maxWidth: 560 }}>
+              <div className="full">
+                <label className="field-label">Nova palavra-passe</label>
+                <input className="input" type="password" value={pwForm.next} onChange={e => spw('next', e.target.value)} placeholder="Mínimo 8 caracteres" />
+              </div>
+              <div className="full">
+                <label className="field-label">Confirmar palavra-passe</label>
+                <input className="input" type="password" value={pwForm.confirm} onChange={e => spw('confirm', e.target.value)} placeholder="••••••••" />
+              </div>
+            </div>
+            <button className="btn btn-secondary" style={{ marginTop: 16 }} onClick={changePassword}
+              disabled={!pwForm.next || pwForm.next !== pwForm.confirm}>
+              Atualizar palavra-passe
+            </button>
+          </div>
         </div>
       );
     }
 
     function NewsletterSection() {
+      const { sbUser, sbProfile, showToast } = useStore();
+      const [subscribed, setSubscribed] = useState(true);
+      const [prefs, setPrefs] = useState({ launches: true, limited: false, events: false });
+      const [saving, setSaving] = useState(false);
+
+      useEffect(() => {
+        const email = sbUser?.email;
+        if (!email) return;
+        SupabaseAPI.getNewsletterStatus(email).then(active => setSubscribed(active));
+      }, [sbUser]);
+
+      const save = async () => {
+        const email = sbUser?.email;
+        if (!email) { showToast('Sem sessão válida'); return; }
+        setSaving(true);
+        try {
+          if (subscribed) {
+            await SupabaseAPI.subscribeNewsletter(email, sbProfile?.first_name);
+          } else {
+            if (window.__SUPABASE_CONFIGURED__) {
+              await window.supabaseClient
+                .from('newsletter_subscribers')
+                .update({ is_active: false, unsubscribed_at: new Date().toISOString() })
+                .eq('email', email);
+            }
+          }
+          showToast('Preferências atualizadas');
+        } catch (e) { showToast('Erro ao guardar'); } finally { setSaving(false); }
+      };
+
       return (
         <div>
           <h2 className="t-h2" style={{ margin: 0, marginBottom: 24 }}>Newsletter</h2>
           <div style={{ maxWidth: 560, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <label className="check"><input type="checkbox" defaultChecked /><span className="box"></span><span>Novidades & lançamentos</span></label>
-            <label className="check"><input type="checkbox" /><span className="box"></span><span>Edições limitadas (acesso prioritário)</span></label>
-            <label className="check"><input type="checkbox" /><span className="box"></span><span>Eventos & ateliers</span></label>
-            <button className="btn btn-primary" style={{ marginTop: 8, alignSelf: 'flex-start' }}>Atualizar preferências</button>
+            <div style={{ padding: 20, border: '1px solid var(--hairline)', borderRadius: 'var(--r)', marginBottom: 8 }}>
+              <div style={{ fontSize: 13, marginBottom: 12, fontWeight: 500 }}>Subscrição</div>
+              <label className="check">
+                <input type="checkbox" checked={subscribed} onChange={e => setSubscribed(e.target.checked)} />
+                <span className="box"></span>
+                <span>Quero receber comunicações da Kara</span>
+              </label>
+            </div>
+            <div style={{ opacity: subscribed ? 1 : 0.4, pointerEvents: subscribed ? 'auto' : 'none', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: 'var(--font-mono)', marginBottom: 4 }}>Tópicos</div>
+              <label className="check">
+                <input type="checkbox" checked={prefs.launches} onChange={e => setPrefs(p => ({ ...p, launches: e.target.checked }))} />
+                <span className="box"></span>
+                <span>Novidades & lançamentos</span>
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={prefs.limited} onChange={e => setPrefs(p => ({ ...p, limited: e.target.checked }))} />
+                <span className="box"></span>
+                <span>Edições limitadas (acesso prioritário)</span>
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={prefs.events} onChange={e => setPrefs(p => ({ ...p, events: e.target.checked }))} />
+                <span className="box"></span>
+                <span>Eventos & ateliers</span>
+              </label>
+            </div>
+            <button className="btn btn-primary" style={{ marginTop: 8, alignSelf: 'flex-start' }} onClick={save} disabled={saving}>
+              {saving ? 'A guardar…' : 'Atualizar preferências'}
+            </button>
           </div>
         </div>
       );
