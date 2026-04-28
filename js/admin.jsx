@@ -77,7 +77,7 @@
     [data-admin] ::-webkit-scrollbar-track{background:transparent;}
     [data-admin] ::-webkit-scrollbar-thumb{background:var(--surface-container-high);
       border-radius:8px;border:2px solid var(--surface);}
-    @keyframes adm-fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes adm-fade{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
     @keyframes adm-slide{from{transform:translateX(100%)}to{transform:translateX(0)}}
     @keyframes adm-overlay{from{opacity:0}to{opacity:1}}
     [data-admin] .animate-fade{animation:adm-fade 220ms ease both;}
@@ -102,7 +102,7 @@
     async getProducts() {
       if (!configured()) return null;
       const [prodRes, catRes, colRes, imgRes] = await Promise.all([
-        db().from('products').select('id,sku,name,price,type,is_active,stock_quantity,low_stock_threshold,sort_order,category_id').order('sort_order'),
+        db().from('products').select('id,sku,name,price,type,is_active,stock_quantity,low_stock_threshold,sort_order,category_id,gender').order('sort_order'),
         db().from('categories').select('id,label'),
         db().from('product_colors').select('product_id,color_id'),
         db().from('product_images').select('product_id,url').order('sort_order'),
@@ -124,6 +124,7 @@
         id: p.sku || p.id,
         name: p.name,
         type: p.type || '',
+        gender: p.gender || 'unissex',
         collection: catMap[p.category_id] || '—',
         category_id: p.category_id,
         price: Number(p.price),
@@ -164,7 +165,7 @@
 
     async getProductDetail(productId) {
       const { data } = await db().from('products')
-        .select('id,sku,name,slug,description,price,type,weight,origin,materials,is_active,stock_quantity,low_stock_threshold,category_id,sort_order')
+        .select('id,sku,name,slug,description,price,type,weight,origin,materials,is_active,stock_quantity,low_stock_threshold,category_id,sort_order,gender')
         .eq('id', productId).single();
       return data;
     },
@@ -202,26 +203,34 @@
       if (!configured()) return null;
       const PAID = ['paid', 'confirmed', 'processing', 'shipped', 'delivered'];
       const [profRes, ordRes] = await Promise.all([
-        db().from('profiles').select('id,first_name,last_name,email,role,created_at').neq('role', 'admin').order('created_at', { ascending: false }),
-        db().from('orders').select('profile_id,total,status').not('profile_id', 'is', null).in('status', PAID),
+        db().from('profiles').select('id,first_name,last_name,email,phone,customer_ref,role,created_at').neq('role', 'admin').order('created_at', { ascending: false }),
+        db().from('orders').select('profile_id,total,status,created_at').not('profile_id', 'is', null).in('status', PAID),
       ]);
       if (profRes.error) { console.warn('Admin.getCustomers:', profRes.error.message); return null; }
       const statsMap = {};
       (ordRes.data || []).forEach(o => {
-        if (!statsMap[o.profile_id]) statsMap[o.profile_id] = { count: 0, ltv: 0 };
+        if (!statsMap[o.profile_id]) statsMap[o.profile_id] = { count: 0, ltv: 0, lastAt: null };
         statsMap[o.profile_id].count++;
         statsMap[o.profile_id].ltv += Number(o.total);
+        if (!statsMap[o.profile_id].lastAt || o.created_at > statsMap[o.profile_id].lastAt)
+          statsMap[o.profile_id].lastAt = o.created_at;
       });
       return (profRes.data || []).map(c => {
-        const s = statsMap[c.id] || { count: 0, ltv: 0 };
+        const s = statsMap[c.id] || { count: 0, ltv: 0, lastAt: null };
+        const isVIP = s.count >= 3;
         return {
           dbId: c.id,
           id: 'C-' + c.id.slice(0, 6).toUpperCase(),
           name: [c.first_name, c.last_name].filter(Boolean).join(' ') || 'Cliente',
-          email: c.email || '—',
+          firstName: c.first_name || '',
+          lastName: c.last_name || '',
+          email: c.email || '',
+          phone: c.phone || '',
+          customerRef: c.customer_ref || '',
           orders: s.count,
           ltv: s.ltv,
-          status: s.count > 1 ? 'Returning' : s.count === 1 ? 'New' : 'Sem pedidos',
+          lastOrderAt: s.lastAt ? new Date(s.lastAt).toLocaleDateString('pt-PT', { day: 'numeric', month: 'short', year: 'numeric' }) : null,
+          status: isVIP ? 'VIP' : s.count > 1 ? 'Returning' : s.count === 1 ? 'New' : 'Sem pedidos',
           joined: new Date(c.created_at).toLocaleDateString('pt-PT', { month: 'short', year: 'numeric' }),
         };
       });
@@ -415,6 +424,38 @@
         .eq('profile_id', profileId)
         .order('created_at', { ascending: false });
       return data || [];
+    },
+
+    async getCustomerAddresses(profileId) {
+      if (!configured()) return [];
+      const { data } = await db()
+        .from('addresses')
+        .select('id,label,first_name,last_name,address_1,address_2,city,postal_code,country,phone,is_default,is_billing')
+        .eq('profile_id', profileId)
+        .order('is_default', { ascending: false });
+      return data || [];
+    },
+
+    async getCustomerWishlist(profileId) {
+      if (!configured()) return [];
+      const { data: wishData } = await db()
+        .from('wishlists')
+        .select('id,product_id,created_at')
+        .eq('profile_id', profileId)
+        .order('created_at', { ascending: false });
+      if (!wishData?.length) return [];
+      const { data: prods } = await db()
+        .from('products')
+        .select('id,name,sku,price')
+        .in('id', wishData.map(w => w.product_id));
+      const prodMap = {};
+      (prods || []).forEach(p => { prodMap[p.id] = p; });
+      return wishData.map(w => ({ ...w, product: prodMap[w.product_id] || null }));
+    },
+
+    async updateCustomerProfile(profileId, fields) {
+      const { error } = await db().from('profiles').update(fields).eq('id', profileId);
+      if (error) throw error;
     },
 
     async deleteProducts(ids) {
@@ -1318,7 +1359,7 @@
       name: product?.name || '',
       sku:  product?.id  || '',
       price: product?.price ?? '',
-      type:  product?.type || '',
+      gender: product?.gender || 'unissex',
       description: '',
       materials: '',
       weight: '',
@@ -1353,7 +1394,8 @@
             setForm(f => ({
               ...f,
               name: detail.name, sku: detail.sku, price: detail.price,
-              type: detail.type || '', description: detail.description || '',
+              gender: detail.gender || 'unissex',
+              description: detail.description || '',
               materials: Array.isArray(detail.materials) ? detail.materials.join(', ') : (detail.materials || ''),
               weight: detail.weight || '', origin: detail.origin || '',
               stock_quantity: detail.stock_quantity ?? 0,
@@ -1383,7 +1425,8 @@
           + (isNew ? '-' + Date.now().toString(36) : '');
         const fields = {
           name: form.name.trim(), sku: form.sku.trim(), price: Number(form.price),
-          type: form.type || null, description: form.description || null,
+          gender: form.gender || 'unissex',
+          description: form.description || null,
           materials: form.materials ? form.materials.split(',').map(s => s.trim()).filter(Boolean) : null,
           weight: form.weight || null, origin: form.origin || null,
           stock_quantity: Number(form.stock_quantity) || 0,
@@ -1448,12 +1491,21 @@
                     </div>
                     {fieldBox('SKU *', <div className="field"><input value={form.sku} onChange={e => setF('sku', e.target.value)} placeholder="HR-TEE-001" style={{ fontFamily: 'monospace', fontSize: 13 }}/></div>)}
                     {fieldBox('Preço (€) *', <div className="field"><input type="number" min="0" step="0.01" value={form.price} onChange={e => setF('price', e.target.value)} placeholder="0.00"/></div>)}
-                    {fieldBox('Tipo', <div className="field"><input value={form.type} onChange={e => setF('type', e.target.value)} placeholder="T-Shirt, Sweatshirt…"/></div>)}
-                    {fieldBox('Categoria',
+                    {fieldBox('Género',
+                      <div className="field">
+                        <select value={form.gender} onChange={e => setF('gender', e.target.value)}
+                                style={{ border: 0, outline: 0, background: 'transparent', width: '100%', fontSize: 14, color: 'var(--on-surface)', fontFamily: 'inherit' }}>
+                          <option value="homem">Homem</option>
+                          <option value="mulher">Mulher</option>
+                          <option value="unissex">Unissex</option>
+                        </select>
+                      </div>
+                    )}
+                    {fieldBox('Tipo de produto',
                       <div className="field">
                         <select value={form.category_id || ''} onChange={e => setF('category_id', e.target.value || null)}
                                 style={{ border: 0, outline: 0, background: 'transparent', width: '100%', fontSize: 14, color: 'var(--on-surface)', fontFamily: 'inherit' }}>
-                          <option value="">— Sem categoria —</option>
+                          <option value="">— Sem tipo —</option>
                           {allCats.map(c => <option key={c.id} value={c.id}>{c.path}</option>)}
                         </select>
                       </div>
@@ -1706,7 +1758,7 @@
                             else setSelected(new Set());
                           }}/>
                       </th>
-                      {['Produto','SKU','Categoria','Preço','Stock','Cores','Estado',''].map(h => <th key={h} style={thS}>{h}</th>)}
+                      {['Produto','SKU','Tipo','Género','Preço','Stock','Estado',''].map(h => <th key={h} style={thS}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -1725,24 +1777,21 @@
                         <td style={tdS}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                             <ProductThumb product={p}/>
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{p.name}</div>
-                              {p.type && <div className="muted" style={{ fontSize: 11 }}>{p.type}</div>}
-                            </div>
+                            <div style={{ fontWeight: 600 }}>{p.name}</div>
                           </div>
                         </td>
                         <td style={{ ...tdS, fontFamily: 'ui-monospace,monospace', fontSize: 11, color: 'var(--on-surface-variant)' }}>{p.id}</td>
                         <td style={{ ...tdS, color: 'var(--on-surface-variant)' }}>{p.collection}</td>
+                        <td style={tdS}>
+                          <span className={`chip ${p.gender === 'homem' ? 'chip-info' : p.gender === 'mulher' ? 'chip-neutral' : 'chip-neutral'}`} style={{ fontSize: 11 }}>
+                            {p.gender === 'homem' ? 'Homem' : p.gender === 'mulher' ? 'Mulher' : 'Unissex'}
+                          </span>
+                        </td>
                         <td style={{ ...tdS, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtEUR(p.price)}</td>
                         <td style={{ ...tdS, fontVariantNumeric: 'tabular-nums', fontWeight: 700,
                                      color: p.stock === 0 ? 'var(--error)' : p.stock <= p.lowStockThreshold ? 'var(--warning)' : 'var(--success)' }}>
                           {p.stock}
                           {p.stock <= p.lowStockThreshold && p.stock > 0 && <span style={{ fontSize: 10, marginLeft: 4, opacity: .7 }}>↓</span>}
-                        </td>
-                        <td style={tdS}>
-                          {p.colorCount > 0
-                            ? <span className="chip chip-neutral">{p.colorCount} cor{p.colorCount > 1 ? 'es' : ''}</span>
-                            : <span className="muted" style={{ fontSize: 12 }}>—</span>}
                         </td>
                         <td style={tdS}>
                           {!p.is_active
@@ -1775,53 +1824,95 @@
   };
 
   // ── Customers ─────────────────────────────────────────────────────────────────
-  const Customers = ({ onOpenCustomer }) => {
+  const Customers = ({ onOpenCustomer, showToast }) => {
     const { data: customers, loading, reload } = useData(AdminAPI.getCustomers, MOCK.customers);
     const [q, setQ] = useState('');
+    const [tab, setTab] = useState('todos');
     const swatches = ['var(--swatch-1)','var(--swatch-2)','var(--swatch-3)','var(--swatch-4)',
                       'var(--swatch-5)','var(--swatch-6)','var(--swatch-7)','var(--swatch-8)'];
-    const items = (customers || []).filter(c => !q || c.name.toLowerCase().includes(q.toLowerCase()) || c.email.toLowerCase().includes(q.toLowerCase()));
-    const totalLTV = (customers || []).reduce((s, c) => s + c.ltv, 0);
+
+    const all = customers || [];
+    const totalLTV = all.reduce((s, c) => s + c.ltv, 0);
+    const vipCount = all.filter(c => c.status === 'VIP').length;
+
+    const tabs = [
+      { id: 'todos',   label: 'Todos',       count: all.length },
+      { id: 'pedidos', label: 'Com pedidos', count: all.filter(c => c.orders > 0).length },
+      { id: 'vip',     label: 'VIP',         count: vipCount },
+      { id: 'sem',     label: 'Sem pedidos', count: all.filter(c => c.orders === 0).length },
+    ];
+
+    const items = all.filter(c => {
+      const matchTab = tab === 'todos' ? true
+        : tab === 'pedidos' ? c.orders > 0
+        : tab === 'vip'     ? c.status === 'VIP'
+        : c.orders === 0;
+      const matchQ = !q || c.name.toLowerCase().includes(q.toLowerCase())
+        || c.email.toLowerCase().includes(q.toLowerCase())
+        || (c.phone && c.phone.includes(q));
+      return matchTab && matchQ;
+    });
 
     return (
       <div style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 18 }} className="animate-fade">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <h1 className="h1" style={{ margin: 0 }}>Clientes</h1>
-            <div className="muted" style={{ marginTop: 4 }}>{(customers || []).length} clientes registados{configured() ? '' : ' (demo)'}</div>
+            <div className="muted" style={{ marginTop: 4 }}>{all.length} clientes registados{configured() ? '' : ' (demo)'}</div>
           </div>
           <button className="btn btn-secondary" onClick={reload}><IcRefresh size={15}/> Actualizar</button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
           {[
-            ['Total clientes', fmtNum((customers||[]).length)],
-            ['Com pedidos', fmtNum((customers||[]).filter(c => c.orders > 0).length)],
-            ['LTV total', fmtEUR(totalLTV)],
-          ].map(([l, v]) => (
-            <div key={l} className="card" style={{ padding: '16px 20px' }}>
-              <div className="overline" style={{ fontSize: 11, marginBottom: 6 }}>{l}</div>
-              <div style={{ fontSize: 22, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{v}</div>
+            { label: 'Total clientes', val: fmtNum(all.length), color: 'var(--on-surface)' },
+            { label: 'Com pedidos',    val: fmtNum(all.filter(c => c.orders > 0).length), color: 'var(--success)' },
+            { label: 'VIP (≥3 pedidos)', val: fmtNum(vipCount), color: 'var(--info)' },
+            { label: 'LTV total',      val: fmtEUR(totalLTV), color: 'var(--primary)' },
+          ].map(({ label, val, color }) => (
+            <div key={label} className="card" style={{ padding: '16px 20px' }}>
+              <div className="overline" style={{ fontSize: 11, marginBottom: 6 }}>{label}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color }}>{val}</div>
             </div>
           ))}
         </div>
 
-        <div className="field" style={{ width: 320 }}>
-          <IcSearch size={14} stroke="var(--on-surface-variant)"/>
-          <input placeholder="Nome ou email…" value={q} onChange={e => setQ(e.target.value)}/>
-        </div>
-
-        {loading
-          ? <div className="muted" style={{ textAlign: 'center', padding: 40 }}>A carregar…</div>
-          : items.length === 0
-            ? <div className="muted" style={{ textAlign: 'center', padding: 60 }}>
-                {(customers || []).length === 0 ? 'Ainda sem clientes registados.' : 'Sem resultados.'}
+        <div className="card" style={{ padding: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--hairline)', padding: '0 6px' }}>
+            <div style={{ display: 'flex' }}>
+              {tabs.map(t => (
+                <button key={t.id} onClick={() => setTab(t.id)} style={{
+                  padding: '12px 14px', border: 0, background: 'transparent', cursor: 'pointer',
+                  fontSize: 13, fontWeight: tab === t.id ? 600 : 500,
+                  color: tab === t.id ? 'var(--on-surface)' : 'var(--on-surface-variant)',
+                  borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent', marginBottom: -1,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  {t.label}
+                  <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999,
+                    background: tab === t.id ? 'var(--primary-soft-2)' : 'var(--surface-container)',
+                    color: tab === t.id ? 'var(--primary)' : 'var(--on-surface-variant)' }}>{t.count}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ padding: '8px 10px' }}>
+              <div className="field" style={{ width: 280 }}>
+                <IcSearch size={14} stroke="var(--on-surface-variant)"/>
+                <input placeholder="Nome, email ou telefone…" value={q} onChange={e => setQ(e.target.value)}/>
               </div>
-            : <Card title="Todos os clientes" padded={false}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            </div>
+          </div>
+
+          {loading
+            ? <div className="muted" style={{ padding: '40px 20px', textAlign: 'center' }}>A carregar…</div>
+            : items.length === 0
+              ? <div className="muted" style={{ padding: '60px 20px', textAlign: 'center' }}>
+                  {all.length === 0 ? 'Ainda sem clientes registados.' : 'Sem resultados.'}
+                </div>
+              : <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ background: 'var(--surface-container-low)' }}>
-                      {['Cliente','Email','Pedidos','LTV','Estado','Membro desde',''].map(h => <th key={h} style={thS}>{h}</th>)}
+                      {['Cliente','Email','Telefone','Pedidos','LTV','Último pedido','Estado','Membro desde',''].map(h => <th key={h} style={thS}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -1831,113 +1922,310 @@
                           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                         <td style={tdS}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <div style={{ width: 34, height: 34, borderRadius: 999, background: swatches[i % 8], color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 600, fontSize: 12, flexShrink: 0 }}>
-                              {c.name.split(' ').map(s => s[0]).slice(0, 2).join('')}
+                            <div style={{ width: 34, height: 34, borderRadius: 999, background: swatches[i % 8], color: '#fff',
+                                          display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>
+                              {(c.name || 'C').split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase()}
                             </div>
-                            <span style={{ fontWeight: 600 }}>{c.name}</span>
+                            <div>
+                              <div style={{ fontWeight: 600 }}>{c.name}</div>
+                              {c.customerRef && <div className="muted" style={{ fontSize: 11, fontFamily: 'monospace' }}>{c.customerRef}</div>}
+                            </div>
                           </div>
                         </td>
-                        <td style={{ ...tdS, color: 'var(--on-surface-variant)' }}>{c.email}</td>
-                        <td style={{ ...tdS, fontVariantNumeric: 'tabular-nums' }}>{c.orders}</td>
+                        <td style={{ ...tdS, color: 'var(--on-surface-variant)', fontSize: 12 }}>{c.email || '—'}</td>
+                        <td style={{ ...tdS, color: 'var(--on-surface-variant)', fontSize: 12 }}>{c.phone || '—'}</td>
+                        <td style={{ ...tdS, fontVariantNumeric: 'tabular-nums', textAlign: 'center' }}>{c.orders}</td>
                         <td style={{ ...tdS, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtEUR(c.ltv)}</td>
+                        <td style={{ ...tdS, color: 'var(--on-surface-variant)', fontSize: 12 }}>{c.lastOrderAt || '—'}</td>
                         <td style={tdS}>{statusToChip(c.status)}</td>
-                        <td style={{ ...tdS, color: 'var(--on-surface-variant)' }}>{c.joined}</td>
+                        <td style={{ ...tdS, color: 'var(--on-surface-variant)', fontSize: 12 }}>{c.joined}</td>
                         <td style={tdS}><IcChevRight size={14} stroke="var(--outline)"/></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </Card>
-        }
+          }
+        </div>
       </div>
     );
   };
 
   // ── Customer Panel ────────────────────────────────────────────────────────────
-  const CustomerPanel = ({ customer, onClose, onOpenOrder }) => {
-    const [orders, setOrders] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const STAT = { pending: 'Pending', paid: 'Paid', confirmed: 'Paid', processing: 'Em preparação', shipped: 'Enviado', delivered: 'Entregue', cancelled: 'Cancelled', refunded: 'Refunded' };
+  const CustomerPanel = ({ customer, onClose, onOpenOrder, showToast }) => {
+    const [tab, setTab] = useState('geral');
+    const [orders,    setOrders]    = useState([]);
+    const [addresses, setAddresses] = useState([]);
+    const [wishlist,  setWishlist]  = useState([]);
+    const [loadingOrders, setLoadingOrders] = useState(true);
+    const [loadingAddr,   setLoadingAddr]   = useState(false);
+    const [loadingWish,   setLoadingWish]   = useState(false);
+    const [editMode,  setEditMode]  = useState(false);
+    const [saving,    setSaving]    = useState(false);
+    const [editForm,  setEditForm]  = useState({
+      first_name: customer.firstName || '',
+      last_name:  customer.lastName  || '',
+      email:      customer.email     || '',
+      phone:      customer.phone     || '',
+    });
+
+    const STAT = { pending: 'Pending', paid: 'Paid', confirmed: 'Paid',
+      processing: 'Em preparação', shipped: 'Enviado', delivered: 'Entregue',
+      cancelled: 'Cancelled', refunded: 'Refunded' };
+
+    const swatches = ['var(--swatch-1)','var(--swatch-2)','var(--swatch-3)','var(--swatch-4)',
+                      'var(--swatch-5)','var(--swatch-6)','var(--swatch-7)','var(--swatch-8)'];
+    const avatarColor = swatches[(customer.name || 'C').charCodeAt(0) % 8];
 
     useEffect(() => {
-      if (!customer.dbId) { setLoading(false); return; }
+      if (!customer.dbId) { setLoadingOrders(false); return; }
       AdminAPI.getCustomerDetail(customer.dbId).then(data => {
-        setOrders(data);
-        setLoading(false);
+        setOrders(data); setLoadingOrders(false);
       });
     }, [customer.dbId]);
 
+    useEffect(() => {
+      if (tab === 'moradas' && !loadingAddr && addresses.length === 0 && customer.dbId) {
+        setLoadingAddr(true);
+        AdminAPI.getCustomerAddresses(customer.dbId).then(data => {
+          setAddresses(data); setLoadingAddr(false);
+        });
+      }
+      if (tab === 'wishlist' && !loadingWish && wishlist.length === 0 && customer.dbId) {
+        setLoadingWish(true);
+        AdminAPI.getCustomerWishlist(customer.dbId).then(data => {
+          setWishlist(data); setLoadingWish(false);
+        });
+      }
+    }, [tab]);
+
     const avgOrder = orders.length ? orders.reduce((s, o) => s + Number(o.total), 0) / orders.length : 0;
-    const swatches = ['var(--swatch-1)','var(--swatch-2)','var(--swatch-3)','var(--swatch-4)','var(--swatch-5)','var(--swatch-6)','var(--swatch-7)','var(--swatch-8)'];
-    const avatarColor = swatches[customer.name.charCodeAt(0) % 8];
+
+    const saveProfile = async () => {
+      if (!customer.dbId) return;
+      setSaving(true);
+      try {
+        await AdminAPI.updateCustomerProfile(customer.dbId, {
+          first_name: editForm.first_name || null,
+          last_name:  editForm.last_name  || null,
+          phone:      editForm.phone      || null,
+        });
+        showToast && showToast('Perfil actualizado.');
+        setEditMode(false);
+      } catch(e) { showToast && showToast('Erro: ' + e.message, 'error'); }
+      finally { setSaving(false); }
+    };
+
+    const panelTabs = [
+      { id: 'geral',    label: 'Geral' },
+      { id: 'pedidos',  label: `Pedidos (${orders.length})` },
+      { id: 'moradas',  label: 'Moradas' },
+      { id: 'wishlist', label: 'Wishlist' },
+    ];
 
     return (
       <>
         <div className="animate-overlay" onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(16,24,40,0.32)', zIndex: 50 }}/>
-        <aside className="animate-slide-right" style={{ position: 'fixed', top: 0, right: 0, height: '100%', width: 480,
+        <aside className="animate-slide-right" style={{ position: 'fixed', top: 0, right: 0, height: '100%', width: 520,
                                                         background: 'var(--surface-container-lowest)',
                                                         boxShadow: '-12px 0 32px rgba(16,24,40,0.1)',
                                                         zIndex: 51, display: 'flex', flexDirection: 'column',
                                                         borderLeft: '1px solid var(--hairline)' }}>
-          <header style={{ padding: '18px 22px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          {/* Header */}
+          <header style={{ padding: '18px 22px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
               <div style={{ width: 44, height: 44, borderRadius: 999, background: avatarColor, color: '#fff',
                             display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
-                {customer.name.split(' ').map(s => s[0]).slice(0, 2).join('')}
+                {(customer.name || 'C').split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase()}
               </div>
               <div>
-                <div className="h3">{customer.name}</div>
-                <div className="muted" style={{ fontSize: 12 }}>{customer.email}</div>
+                <div className="h3" style={{ lineHeight: '22px' }}>{customer.name}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                  {statusToChip(customer.status)}
+                  <span className="muted" style={{ fontSize: 11 }}>Desde {customer.joined}</span>
+                </div>
               </div>
             </div>
             <button className="btn btn-ghost btn-icon" onClick={onClose}><IcClose size={18}/></button>
           </header>
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Tab nav */}
+          <div style={{ display: 'flex', borderBottom: '1px solid var(--hairline)', padding: '0 6px', flexShrink: 0 }}>
+            {panelTabs.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)} style={{
+                padding: '10px 14px', border: 0, background: 'transparent', cursor: 'pointer',
+                fontSize: 13, fontWeight: tab === t.id ? 600 : 500,
+                color: tab === t.id ? 'var(--on-surface)' : 'var(--on-surface-variant)',
+                borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent', marginBottom: -1,
+              }}>{t.label}</button>
+            ))}
+          </div>
 
-            {/* Stats */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
-              {[['Pedidos', customer.orders], ['LTV', fmtEUR(customer.ltv)], ['Ticket médio', fmtEUR(avgOrder)]].map(([l, v]) => (
-                <div key={l} style={{ padding: '12px 14px', background: 'var(--surface-container-low)', borderRadius: 8 }}>
-                  <div className="overline" style={{ fontSize: 10, marginBottom: 4 }}>{l}</div>
-                  <div style={{ fontWeight: 700, fontSize: 15 }}>{v}</div>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+
+            {/* ── Geral ── */}
+            {tab === 'geral' && <>
+              {/* Stats */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+                {[['Pedidos', customer.orders],['LTV', fmtEUR(customer.ltv)],['Ticket médio', fmtEUR(avgOrder)]].map(([l, v]) => (
+                  <div key={l} style={{ padding: '12px 14px', background: 'var(--surface-container-low)', borderRadius: 8 }}>
+                    <div className="overline" style={{ fontSize: 10, marginBottom: 4 }}>{l}</div>
+                    <div style={{ fontWeight: 700, fontSize: 15, fontVariantNumeric: 'tabular-nums' }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Contact info */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <div className="overline">Informação de contacto</div>
+                  {!editMode
+                    ? <button className="btn btn-ghost btn-sm" onClick={() => setEditMode(true)}><IcEdit size={13}/> Editar</button>
+                    : <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn btn-secondary btn-sm" onClick={() => setEditMode(false)}>Cancelar</button>
+                        <button className="btn btn-primary btn-sm" onClick={saveProfile} disabled={saving}>{saving ? 'A guardar…' : 'Guardar'}</button>
+                      </div>
+                  }
                 </div>
-              ))}
-            </div>
-            <div className="muted" style={{ fontSize: 12 }}>Membro desde {customer.joined} · {statusToChip(customer.status)}</div>
+                {editMode ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div>
+                        <label className="overline" style={{ fontSize: 10, display: 'block', marginBottom: 5 }}>Primeiro nome</label>
+                        <div className="field"><input value={editForm.first_name} onChange={e => setEditForm(f => ({ ...f, first_name: e.target.value }))}/></div>
+                      </div>
+                      <div>
+                        <label className="overline" style={{ fontSize: 10, display: 'block', marginBottom: 5 }}>Último nome</label>
+                        <div className="field"><input value={editForm.last_name} onChange={e => setEditForm(f => ({ ...f, last_name: e.target.value }))}/></div>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="overline" style={{ fontSize: 10, display: 'block', marginBottom: 5 }}>Telefone</label>
+                      <div className="field"><input value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} placeholder="+351 900 000 000"/></div>
+                    </div>
+                    <div className="muted" style={{ fontSize: 11 }}>O email é gerido pela autenticação e não pode ser alterado aqui.</div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {[
+                      ['Email',    customer.email  || '—'],
+                      ['Telefone', customer.phone  || '—'],
+                      ['Ref.',     customer.customerRef || '—'],
+                    ].map(([l, v]) => (
+                      <div key={l} style={{ display: 'flex', gap: 12, padding: '10px 14px', background: 'var(--surface-container-low)', borderRadius: 8 }}>
+                        <span className="muted" style={{ fontSize: 12, width: 64, flexShrink: 0 }}>{l}</span>
+                        <span style={{ fontSize: 13, fontWeight: 500 }}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-            {/* Order history */}
-            <div>
-              <div className="overline" style={{ marginBottom: 10 }}>Histórico de pedidos</div>
-              {loading
-                ? <div className="muted" style={{ fontSize: 13 }}>A carregar…</div>
-                : orders.length === 0
-                  ? <div className="muted" style={{ fontSize: 13, padding: '20px 0', textAlign: 'center' }}>Sem pedidos registados.</div>
-                  : <div style={{ display: 'flex', flexDirection: 'column', gap: 1, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--hairline)' }}>
-                      {orders.map((o, i) => {
-                        const ref = o.order_ref ? '#' + o.order_ref : '#KR-' + o.id.slice(-5).toUpperCase();
-                        const stat = STAT[o.status] || o.status;
-                        return (
-                          <div key={o.id} onClick={() => onOpenOrder && onOpenOrder({ dbId: o.id, id: ref })}
-                               style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: onOpenOrder ? 'pointer' : 'default',
-                                        background: i % 2 === 0 ? 'var(--surface-container-lowest)' : 'var(--surface-container-low)' }}
-                               onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-container)'}
-                               onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? 'var(--surface-container-lowest)' : 'var(--surface-container-low)'}>
+              {/* Último pedido */}
+              {customer.lastOrderAt && (
+                <div className="muted" style={{ fontSize: 12 }}>Último pedido: {customer.lastOrderAt}</div>
+              )}
+            </>}
+
+            {/* ── Pedidos ── */}
+            {tab === 'pedidos' && (
+              <div>
+                {loadingOrders
+                  ? <div className="muted" style={{ textAlign: 'center', padding: 40 }}>A carregar…</div>
+                  : orders.length === 0
+                    ? <div className="muted" style={{ textAlign: 'center', padding: '40px 0', fontSize: 13 }}>Sem pedidos registados.</div>
+                    : <div style={{ display: 'flex', flexDirection: 'column', gap: 1, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--hairline)' }}>
+                        {orders.map((o, i) => {
+                          const ref = o.order_ref ? '#' + o.order_ref : '#KR-' + o.id.slice(-5).toUpperCase();
+                          return (
+                            <div key={o.id} onClick={() => onOpenOrder && onOpenOrder({ dbId: o.id, id: ref })}
+                                 style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+                                          cursor: onOpenOrder ? 'pointer' : 'default',
+                                          background: i % 2 === 0 ? 'var(--surface-container-lowest)' : 'var(--surface-container-low)' }}
+                                 onMouseEnter={e => { if (onOpenOrder) e.currentTarget.style.background = 'var(--surface-container)'; }}
+                                 onMouseLeave={e => { e.currentTarget.style.background = i % 2 === 0 ? 'var(--surface-container-lowest)' : 'var(--surface-container-low)'; }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--primary)' }}>{ref}</div>
+                                <div className="muted" style={{ fontSize: 11 }}>
+                                  {new Date(o.created_at).toLocaleDateString('pt-PT', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                  {o.total_items ? ` · ${o.total_items} artigo${o.total_items > 1 ? 's' : ''}` : ''}
+                                </div>
+                              </div>
+                              {statusToChip(STAT[o.status] || o.status)}
+                              <div style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>{fmtEUR(o.total)}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                }
+              </div>
+            )}
+
+            {/* ── Moradas ── */}
+            {tab === 'moradas' && (
+              <div>
+                {loadingAddr
+                  ? <div className="muted" style={{ textAlign: 'center', padding: 40 }}>A carregar…</div>
+                  : addresses.length === 0
+                    ? <div className="muted" style={{ textAlign: 'center', padding: '40px 0', fontSize: 13 }}>
+                        {customer.dbId ? 'Sem moradas registadas.' : 'Ligação à BD necessária.'}
+                      </div>
+                    : <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {addresses.map(addr => (
+                          <div key={addr.id} style={{ padding: '14px 16px', background: 'var(--surface-container-low)', borderRadius: 8,
+                                                       border: addr.is_default ? '2px solid var(--primary)' : '1px solid var(--hairline)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                              {addr.label && <span style={{ fontWeight: 600, fontSize: 13 }}>{addr.label}</span>}
+                              {addr.is_default && <span className="chip chip-info" style={{ fontSize: 10 }}>Principal</span>}
+                              {addr.is_billing && <span className="chip chip-neutral" style={{ fontSize: 10 }}>Faturação</span>}
+                            </div>
+                            <div style={{ fontSize: 13, lineHeight: '22px', color: 'var(--on-surface-variant)' }}>
+                              {[addr.first_name, addr.last_name].filter(Boolean).join(' ') && (
+                                <div style={{ color: 'var(--on-surface)', fontWeight: 500 }}>{[addr.first_name, addr.last_name].filter(Boolean).join(' ')}</div>
+                              )}
+                              {addr.address_1 && <div>{addr.address_1}</div>}
+                              {addr.address_2 && <div>{addr.address_2}</div>}
+                              {(addr.city || addr.postal_code) && <div>{[addr.postal_code, addr.city].filter(Boolean).join(' ')}</div>}
+                              {addr.country && <div>{addr.country}</div>}
+                              {addr.phone && <div>{addr.phone}</div>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                }
+              </div>
+            )}
+
+            {/* ── Wishlist ── */}
+            {tab === 'wishlist' && (
+              <div>
+                {loadingWish
+                  ? <div className="muted" style={{ textAlign: 'center', padding: 40 }}>A carregar…</div>
+                  : wishlist.length === 0
+                    ? <div className="muted" style={{ textAlign: 'center', padding: '40px 0', fontSize: 13 }}>
+                        {customer.dbId ? 'Sem produtos na wishlist.' : 'Ligação à BD necessária.'}
+                      </div>
+                    : <div style={{ display: 'flex', flexDirection: 'column', gap: 1, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--hairline)' }}>
+                        {wishlist.map((w, i) => (
+                          <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+                                                    background: i % 2 === 0 ? 'var(--surface-container-lowest)' : 'var(--surface-container-low)' }}>
+                            <IcStar size={16} stroke="var(--warning)" sw={2}/>
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--primary)' }}>{ref}</div>
+                              <div style={{ fontWeight: 600, fontSize: 13 }}>{w.product?.name || '—'}</div>
                               <div className="muted" style={{ fontSize: 11 }}>
-                                {new Date(o.created_at).toLocaleDateString('pt-PT', { day: 'numeric', month: 'short', year: 'numeric' })}
-                                {o.total_items ? ` · ${o.total_items} artigo${o.total_items > 1 ? 's' : ''}` : ''}
+                                {w.product?.sku && <span style={{ fontFamily: 'monospace', marginRight: 8 }}>{w.product.sku}</span>}
+                                Adicionado em {new Date(w.created_at).toLocaleDateString('pt-PT', { day: 'numeric', month: 'short', year: 'numeric' })}
                               </div>
                             </div>
-                            {statusToChip(stat)}
-                            <div style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>{fmtEUR(o.total)}</div>
+                            {w.product?.price != null && (
+                              <div style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>{fmtEUR(w.product.price)}</div>
+                            )}
                           </div>
-                        );
-                      })}
-                    </div>
-              }
-            </div>
+                        ))}
+                      </div>
+                }
+              </div>
+            )}
+
           </div>
         </aside>
       </>
@@ -2100,7 +2388,7 @@
         case 'overview':  return <Overview  onNavigate={setScreen} onOpenOrder={handleOpenOrder} onOpenProduct={p => handleOpenProduct(p)} showToast={showToast}/>;
         case 'orders':    return <Orders    onOpenOrder={handleOpenOrder} showToast={showToast}/>;
         case 'products':  return <Products  onOpenProduct={handleOpenProduct} onNewProduct={handleNewProduct} showToast={showToast}/>;
-        case 'customers': return <Customers onOpenCustomer={handleOpenCustomer}/>;
+        case 'customers': return <Customers onOpenCustomer={handleOpenCustomer} showToast={showToast}/>;
         case 'analytics': return <Analytics/>;
         default:          return <Analytics/>;
       }
@@ -2117,7 +2405,7 @@
           </div>
         </div>
         {openOrder    && <OrderPanel    order={openOrder}     onClose={() => setOpenOrder(null)}    showToast={showToast}/>}
-        {openCustomer && <CustomerPanel customer={openCustomer} onClose={() => setOpenCustomer(null)} onOpenOrder={handleOpenOrder}/>}
+        {openCustomer && <CustomerPanel customer={openCustomer} onClose={() => setOpenCustomer(null)} onOpenOrder={handleOpenOrder} showToast={showToast}/>}
         {openProduct  && <ProductPanel  product={openProduct.product} onClose={() => setOpenProduct(null)}
                                         showToast={showToast} onSaved={openProduct.reload}/>}
         <Toast msg={toast.msg} type={toast.type} clear={() => setToast({ msg: '', type: 'success' })}/>
