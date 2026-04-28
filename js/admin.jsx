@@ -420,7 +420,7 @@
       if (!configured()) return [];
       const { data } = await db()
         .from('orders_full')
-        .select('id,order_ref,status,fulfillment_status,total,created_at,total_items')
+        .select('id,order_ref,status,fulfillment_status,total,created_at,total_items,channel,notes,tracking_number,tracking_url,shipping_name,shipping_address,profile_email,guest_email,customer_name')
         .eq('profile_id', profileId)
         .order('created_at', { ascending: false });
       return data || [];
@@ -867,22 +867,13 @@
   };
 
   // ── Topbar ────────────────────────────────────────────────────────────────────
-  const Topbar = ({ dark, setDark, onReload }) => (
-    <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 28px',
+  const Topbar = ({ dark, setDark }) => (
+    <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 28px',
                      borderBottom: '1px solid var(--hairline)', background: 'var(--surface)',
                      position: 'sticky', top: 0, zIndex: 10, flexShrink: 0 }}>
-      <div className="field" style={{ width: 280, height: 34 }}>
-        <IcSearch size={14} stroke="var(--on-surface-variant)"/>
-        <input placeholder="Pesquisar…"/>
-      </div>
       <div style={{ flex: 1 }}/>
-      {onReload && <button className="btn btn-ghost btn-icon" onClick={onReload} title="Actualizar dados"><IcRefresh size={16}/></button>}
-      <button className="btn btn-secondary btn-icon" onClick={() => setDark(d => !d)} title={dark ? 'Modo claro' : 'Modo escuro'}>
+      <button className="btn btn-ghost btn-icon" onClick={() => setDark(d => !d)} title={dark ? 'Modo claro' : 'Modo escuro'}>
         {dark ? <IcSun size={17}/> : <IcMoon size={17}/>}
-      </button>
-      <button className="btn btn-secondary btn-icon" style={{ position: 'relative' }}>
-        <IcBell size={17}/>
-        <span style={{ position: 'absolute', top: 7, right: 7, width: 7, height: 7, borderRadius: 999, background: 'var(--error)', border: '2px solid var(--surface-container-lowest)' }}/>
       </button>
     </header>
   );
@@ -1959,18 +1950,22 @@
     const [loadingOrders, setLoadingOrders] = useState(true);
     const [loadingAddr,   setLoadingAddr]   = useState(false);
     const [loadingWish,   setLoadingWish]   = useState(false);
+    const [addrLoaded,    setAddrLoaded]    = useState(false);
+    const [wishLoaded,    setWishLoaded]    = useState(false);
     const [editMode,  setEditMode]  = useState(false);
     const [saving,    setSaving]    = useState(false);
     const [editForm,  setEditForm]  = useState({
       first_name: customer.firstName || '',
       last_name:  customer.lastName  || '',
-      email:      customer.email     || '',
       phone:      customer.phone     || '',
     });
 
     const STAT = { pending: 'Pending', paid: 'Paid', confirmed: 'Paid',
       processing: 'Em preparação', shipped: 'Enviado', delivered: 'Entregue',
       cancelled: 'Cancelled', refunded: 'Refunded' };
+    const FULL = { unfulfilled: 'Unfulfilled', fulfilled: 'Fulfilled', on_hold: 'On hold', returned: 'Returned' };
+    const CHAN = { web: 'Web', mobile: 'Mobile', instagram: 'Instagram', other: 'Outro' };
+    const PAID = ['paid', 'confirmed', 'processing', 'shipped', 'delivered'];
 
     const swatches = ['var(--swatch-1)','var(--swatch-2)','var(--swatch-3)','var(--swatch-4)',
                       'var(--swatch-5)','var(--swatch-6)','var(--swatch-7)','var(--swatch-8)'];
@@ -1984,14 +1979,14 @@
     }, [customer.dbId]);
 
     useEffect(() => {
-      if (tab === 'moradas' && !loadingAddr && addresses.length === 0 && customer.dbId) {
-        setLoadingAddr(true);
+      if (tab === 'moradas' && !addrLoaded && customer.dbId) {
+        setAddrLoaded(true); setLoadingAddr(true);
         AdminAPI.getCustomerAddresses(customer.dbId).then(data => {
           setAddresses(data); setLoadingAddr(false);
         });
       }
-      if (tab === 'wishlist' && !loadingWish && wishlist.length === 0 && customer.dbId) {
-        setLoadingWish(true);
+      if (tab === 'wishlist' && !wishLoaded && customer.dbId) {
+        setWishLoaded(true); setLoadingWish(true);
         AdminAPI.getCustomerWishlist(customer.dbId).then(data => {
           setWishlist(data); setLoadingWish(false);
         });
@@ -2001,13 +1996,13 @@
     const avgOrder = orders.length ? orders.reduce((s, o) => s + Number(o.total), 0) / orders.length : 0;
 
     const saveProfile = async () => {
-      if (!customer.dbId) return;
+      if (!customer.dbId) { showToast && showToast('Sem ligação à BD.', 'error'); return; }
       setSaving(true);
       try {
         await AdminAPI.updateCustomerProfile(customer.dbId, {
-          first_name: editForm.first_name || null,
-          last_name:  editForm.last_name  || null,
-          phone:      editForm.phone      || null,
+          first_name: editForm.first_name.trim() || null,
+          last_name:  editForm.last_name.trim()  || null,
+          phone:      editForm.phone.trim()       || null,
         });
         showToast && showToast('Perfil actualizado.');
         setEditMode(false);
@@ -2017,7 +2012,7 @@
 
     const panelTabs = [
       { id: 'geral',    label: 'Geral' },
-      { id: 'pedidos',  label: `Pedidos (${orders.length})` },
+      { id: 'pedidos',  label: loadingOrders ? 'Pedidos' : `Pedidos (${orders.length})` },
       { id: 'moradas',  label: 'Moradas' },
       { id: 'wishlist', label: 'Wishlist' },
     ];
@@ -2136,8 +2131,30 @@
                     : <div style={{ display: 'flex', flexDirection: 'column', gap: 1, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--hairline)' }}>
                         {orders.map((o, i) => {
                           const ref = o.order_ref ? '#' + o.order_ref : '#KR-' + o.id.slice(-5).toUpperCase();
+                          const openFull = () => {
+                            if (!onOpenOrder) return;
+                            onOpenOrder({
+                              dbId: o.id, id: ref,
+                              isPaid: PAID.includes(o.status),
+                              customer: o.customer_name || '—',
+                              email: o.profile_email || o.guest_email || '',
+                              date: new Date(o.created_at).toLocaleDateString('pt-PT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
+                              items: Number(o.total_items) || 0,
+                              total: Number(o.total),
+                              status: STAT[o.status] || o.status,
+                              fulfillment: FULL[o.fulfillment_status] || o.fulfillment_status,
+                              channel: CHAN[o.channel] || o.channel,
+                              rawStatus: o.status,
+                              rawFulfillment: o.fulfillment_status,
+                              shippingName: o.shipping_name,
+                              shippingAddress: o.shipping_address,
+                              notes: o.notes,
+                              trackingNumber: o.tracking_number || '',
+                              trackingUrl: o.tracking_url || '',
+                            });
+                          };
                           return (
-                            <div key={o.id} onClick={() => onOpenOrder && onOpenOrder({ dbId: o.id, id: ref })}
+                            <div key={o.id} onClick={openFull}
                                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
                                           cursor: onOpenOrder ? 'pointer' : 'default',
                                           background: i % 2 === 0 ? 'var(--surface-container-lowest)' : 'var(--surface-container-low)' }}
@@ -2238,9 +2255,9 @@
     const noData = !a || (a.month === 0 && a.orderCount30d === 0);
     const CHAN_LABEL = { web: 'Web', mobile: 'Mobile', instagram: 'Instagram', other: 'Outro' };
     const FULL_LABEL = { unfulfilled: 'Unfulfilled', fulfilled: 'Fulfilled', on_hold: 'On hold', returned: 'Returned' };
-    const maxChan = a ? Math.max(...(a.byChannel.map(c => c.v)), 1) : 1;
-    const maxFull = a ? Math.max(...(a.byFulfillment.map(c => c.v)), 1) : 1;
-    const maxProd = a ? Math.max(...(a.topProducts.map(p => p.revenue)), 1) : 1;
+    const maxChan = a?.byChannel?.length  ? Math.max(...a.byChannel.map(c => c.v))      : 1;
+    const maxFull = a?.byFulfillment?.length ? Math.max(...a.byFulfillment.map(c => c.v)) : 1;
+    const maxProd = a?.topProducts?.length   ? Math.max(...a.topProducts.map(p => p.revenue)) : 1;
     const pos = a?.delta30 == null || a.delta30 >= 0;
 
     return (
@@ -2367,6 +2384,143 @@
     );
   };
 
+  // ── Settings ──────────────────────────────────────────────────────────────────
+  const Settings = ({ showToast }) => {
+    const [profile, setProfile] = useState(null);
+    const [form, setForm] = useState({ first_name: '', last_name: '', phone: '' });
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+      if (!configured()) return;
+      db().from('profiles').select('id,first_name,last_name,phone,email,customer_ref,role,created_at')
+        .eq('id', db().auth?.user?.()?.id ?? '')
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data) {
+            setProfile(data);
+            setForm({ first_name: data.first_name || '', last_name: data.last_name || '', phone: data.phone || '' });
+          }
+        });
+      // Use getUser for Supabase v2
+      db().auth.getUser().then(({ data: { user } }) => {
+        if (!user) return;
+        db().from('profiles').select('id,first_name,last_name,phone,email,customer_ref,role,created_at')
+          .eq('id', user.id).maybeSingle()
+          .then(({ data }) => {
+            if (data) {
+              setProfile({ ...data, authEmail: user.email });
+              setForm({ first_name: data.first_name || '', last_name: data.last_name || '', phone: data.phone || '' });
+            }
+          });
+      });
+    }, []);
+
+    const save = async () => {
+      if (!profile) return;
+      setSaving(true);
+      try {
+        await AdminAPI.updateCustomerProfile(profile.id, {
+          first_name: form.first_name.trim() || null,
+          last_name:  form.last_name.trim()  || null,
+          phone:      form.phone.trim()       || null,
+        });
+        showToast('Perfil actualizado.');
+        setProfile(p => ({ ...p, first_name: form.first_name, last_name: form.last_name, phone: form.phone }));
+      } catch(e) { showToast('Erro: ' + e.message, 'error'); }
+      finally { setSaving(false); }
+    };
+
+    const fieldBox = (label, child) => (
+      <div>
+        <label className="overline" style={{ fontSize: 10, display: 'block', marginBottom: 6 }}>{label}</label>
+        {child}
+      </div>
+    );
+
+    const isConnected = configured();
+
+    return (
+      <div style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 720 }} className="animate-fade">
+        <div>
+          <h1 className="h1" style={{ margin: 0 }}>Definições</h1>
+          <div className="muted" style={{ marginTop: 4 }}>Configuração da conta e da loja</div>
+        </div>
+
+        {/* Connection status */}
+        <div className="card" style={{ padding: '20px 24px' }}>
+          <div className="overline" style={{ marginBottom: 16 }}>Ligação à base de dados</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 999,
+                          background: isConnected ? 'var(--success)' : 'var(--error)',
+                          boxShadow: isConnected ? '0 0 0 3px var(--success-soft)' : '0 0 0 3px var(--error-soft)' }}/>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>{isConnected ? 'Supabase ligado' : 'Sem ligação'}</span>
+            <span className="muted" style={{ fontSize: 13 }}>
+              {isConnected ? 'BD operacional — todos os dados são lidos em tempo real.' : 'Configura window.supabaseClient para ligar.'}
+            </span>
+          </div>
+        </div>
+
+        {/* Admin profile */}
+        <div className="card" style={{ padding: '20px 24px' }}>
+          <div className="overline" style={{ marginBottom: 16 }}>Conta de administrador</div>
+          {!isConnected ? (
+            <div className="muted" style={{ fontSize: 13 }}>Ligação à BD necessária.</div>
+          ) : !profile ? (
+            <div className="muted" style={{ fontSize: 13 }}>A carregar…</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div style={{ width: 52, height: 52, borderRadius: 999, background: 'var(--primary-soft)', color: 'var(--primary)',
+                              display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 18 }}>
+                  {([profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'A').slice(0, 1).toUpperCase()}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{[profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Admin'}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>{profile.authEmail || profile.email || ''}</div>
+                  <span className="chip chip-info" style={{ marginTop: 4, fontSize: 10 }}>Admin</span>
+                </div>
+              </div>
+              <hr className="hr"/>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {fieldBox('Primeiro nome', <div className="field"><input value={form.first_name} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))}/></div>)}
+                {fieldBox('Último nome',   <div className="field"><input value={form.last_name}  onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))}/></div>)}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  {fieldBox('Telefone', <div className="field"><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+351 900 000 000"/></div>)}
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'A guardar…' : 'Guardar alterações'}</button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* SQL migrations info */}
+        <div className="card" style={{ padding: '20px 24px' }}>
+          <div className="overline" style={{ marginBottom: 16 }}>Migrações SQL</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[
+              { file: 'sql/kara_schema.sql',  label: 'Schema principal', desc: 'Tabelas, RLS e views base.' },
+              { file: 'sql/admin_schema.sql', label: 'Schema de admin',  desc: 'Stock, pedidos, políticas de admin e tipos.' },
+            ].map(({ file, label, desc }) => (
+              <div key={file} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 14px',
+                                        background: 'var(--surface-container-low)', borderRadius: 8 }}>
+                <IcBox size={18} stroke="var(--on-surface-variant)"/>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{label}</div>
+                  <div className="muted" style={{ fontSize: 11 }}>{file} — {desc}</div>
+                </div>
+              </div>
+            ))}
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Corre estes ficheiros no SQL Editor do Supabase Studio para configurar a BD.
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ── PageAdmin ─────────────────────────────────────────────────────────────────
   const PageAdmin = ({ onExit }) => {
     useEffect(() => { injectStyles(); }, []);
@@ -2390,6 +2544,7 @@
         case 'products':  return <Products  onOpenProduct={handleOpenProduct} onNewProduct={handleNewProduct} showToast={showToast}/>;
         case 'customers': return <Customers onOpenCustomer={handleOpenCustomer} showToast={showToast}/>;
         case 'analytics': return <Analytics/>;
+        case 'settings':  return <Settings showToast={showToast}/>;
         default:          return <Analytics/>;
       }
     };
@@ -2399,7 +2554,7 @@
            style={{ position: 'fixed', inset: 0, zIndex: 9000, display: 'flex', overflow: 'hidden', background: 'var(--surface)' }}>
         <Sidebar active={screen} onNavigate={setScreen} onExit={onExit}/>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <Topbar dark={dark} setDark={setDark}/>
+          <Topbar dark={dark} setDark={setDark} screen={screen}/>
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {renderScreen()}
           </div>
