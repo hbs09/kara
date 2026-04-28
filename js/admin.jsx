@@ -676,7 +676,10 @@
 
   // ── Confirm Modal ─────────────────────────────────────────────────────────────
   const ConfirmModal = ({ title, body, confirmLabel = 'Confirmar', onConfirm, onClose, danger = false }) => (
-    <div className="animate-overlay modal-bg" onClick={onClose} style={{ position: 'fixed', inset: 0 }}>
+    <div className="animate-overlay" onClick={onClose}
+         style={{ position: 'fixed', inset: 0, zIndex: 9100,
+                  background: 'rgba(16,24,40,0.48)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface-container-lowest)', borderRadius: 12, padding: 28, width: 400, boxShadow: 'var(--shadow-overlay)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <span className="h3">{title}</span>
