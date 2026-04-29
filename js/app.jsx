@@ -2058,6 +2058,8 @@
       const [payMethod, setPayMethod] = useState('card');
       const [done, setDone] = useState(false);
       const [orderRef, setOrderRef] = useState(null);
+      const [savedAddresses, setSavedAddresses] = useState([]);
+      const [selectedAddrId, setSelectedAddrId] = useState(null);
 
       const shipObj = SHIPPING.find(s => s.id === shipMethod) || SHIPPING[0];
       const shipping = cartSubtotal >= 120 && shipMethod === 'standard' ? 0 : shipObj.price;
@@ -2074,10 +2076,33 @@
       });
       const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-      // Pre-fill email for logged-in users
+      // Pre-fill email + load saved addresses for logged-in users
       useEffect(() => {
-        if (sbUser?.email && !form.email) set('email', sbUser.email);
+        if (!sbUser) return;
+        if (sbUser.email && !form.email) set('email', sbUser.email);
+        if (window.__SUPABASE_CONFIGURED__) {
+          SupabaseAPI.getAddresses(sbUser.id).then(addrs => {
+            setSavedAddresses(addrs || []);
+            // Auto-select default address if form is still empty
+            const def = addrs?.find(a => a.is_default) || addrs?.[0];
+            if (def && !form.address) applyAddress(def);
+          });
+        }
       }, [sbUser]);
+
+      const applyAddress = (addr) => {
+        setSelectedAddrId(addr.id);
+        setForm(f => ({
+          ...f,
+          firstName: addr.first_name || f.firstName,
+          lastName:  addr.last_name  || f.lastName,
+          address:   addr.address_1,
+          city:      addr.city,
+          postal:    addr.postal_code,
+          country:   addr.country || 'Portugal',
+          phone:     addr.phone   || f.phone,
+        }));
+      };
 
       // Empty cart redirect
       useEffect(() => {
@@ -2214,6 +2239,71 @@
                 {step === 1 && (
                   <div>
                     <h3 className="t-h3" style={{ margin: 0, marginBottom: 24 }}>Informação de contacto</h3>
+
+                    {savedAddresses.length > 0 && (
+                      <div style={{ marginBottom: 28 }}>
+                        <div className="t-caps muted" style={{ marginBottom: 12 }}>Moradas guardadas</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {savedAddresses.map(addr => (
+                            <label key={addr.id} style={{
+                              display: 'flex', alignItems: 'flex-start', gap: 14,
+                              padding: '14px 16px', cursor: 'pointer',
+                              border: `1px solid ${selectedAddrId === addr.id ? '#fff' : 'var(--hairline)'}`,
+                              borderRadius: 'var(--r)', transition: 'border-color 0.15s',
+                            }}>
+                              <input type="radio" name="savedAddr" hidden
+                                checked={selectedAddrId === addr.id}
+                                onChange={() => applyAddress(addr)} />
+                              <span style={{
+                                width: 16, height: 16, borderRadius: '50%', flexShrink: 0, marginTop: 1,
+                                border: `1px solid ${selectedAddrId === addr.id ? '#fff' : 'var(--hairline-strong)'}`,
+                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              }}>
+                                {selectedAddrId === addr.id && (
+                                  <span style={{ width: 7, height: 7, background: '#fff', borderRadius: '50%' }}></span>
+                                )}
+                              </span>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--muted)', marginBottom: 4, letterSpacing: '0.06em' }}>
+                                  {(addr.label || 'MORADA').toUpperCase()}
+                                  {addr.is_default && <span style={{ marginLeft: 8, color: '#fff' }}>· PRINCIPAL</span>}
+                                </div>
+                                <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+                                  {[addr.first_name, addr.last_name].filter(Boolean).join(' ')}
+                                  {(addr.first_name || addr.last_name) ? ' — ' : ''}
+                                  {addr.address_1}, {addr.postal_code} {addr.city}
+                                </div>
+                              </div>
+                            </label>
+                          ))}
+                          <label style={{
+                            display: 'flex', alignItems: 'center', gap: 14,
+                            padding: '12px 16px', cursor: 'pointer',
+                            border: `1px solid ${selectedAddrId === null ? '#fff' : 'var(--hairline)'}`,
+                            borderRadius: 'var(--r)',
+                          }}>
+                            <input type="radio" name="savedAddr" hidden
+                              checked={selectedAddrId === null}
+                              onChange={() => {
+                                setSelectedAddrId(null);
+                                setForm(f => ({ ...f, firstName: '', lastName: '', address: '', city: '', postal: '', country: 'Portugal', phone: '' }));
+                              }} />
+                            <span style={{
+                              width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
+                              border: `1px solid ${selectedAddrId === null ? '#fff' : 'var(--hairline-strong)'}`,
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            }}>
+                              {selectedAddrId === null && (
+                                <span style={{ width: 7, height: 7, background: '#fff', borderRadius: '50%' }}></span>
+                              )}
+                            </span>
+                            <div style={{ fontSize: 13 }}>+ Nova morada</div>
+                          </label>
+                        </div>
+                        <div style={{ borderTop: '1px solid var(--hairline)', margin: '24px 0 20px' }}></div>
+                      </div>
+                    )}
+
                     <div className="form-grid">
                       <div className="full">
                         <label className="field-label">Email</label>
